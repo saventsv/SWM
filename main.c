@@ -1,3 +1,6 @@
+// IMPORTANT I am redoing this in redo.c because this one does not work and I can make it better
+
+
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
@@ -9,8 +12,6 @@
 #include <unistd.h>
 #include <X11/X.h>
 /* ... other system includes ... */
-
-// 1. DEFINE YOUR TYPES FIRST
 
 #define MAX_WORKSPACES 9
 typedef struct {
@@ -53,70 +54,78 @@ typedef struct {
   void (*action)(Display *dpy, const Arg *arg);
   const Arg arg;
 } Chord;
+/* Appearance */
+static const int borders        = 2;
+static const int gaps           = 10;
+static const unsigned long active_color = 0x00FF00; 
+static const unsigned long idle_color   = 0x444444;
+static const float master_ratio         = 0.5;
+
+/* Autostart */
+static const char *autostart_cmds[][10] = {
+  {NULL}
+};
+
+/* Keybindings */
+#define MOD Mod1Mask
+#define ALT Mod1Mask
+#define SHIFT ShiftMask
+
+// 1. DEFINE YOUR TYPES FIRST
+
 
 // 2. DECLARE YOUR FUNCTIONS (Prototypes)
 // This tells config.h that these functions exist somewhere
 /*
-void quit(Display *dpy, const Arg *arg);
-void terminal_kitty(Display *dpy, const Arg *arg);
-void focus(Display *dpy, const Arg *arg);
-void move_workspace(Display *dpy, const Arg *arg);
-void activate_chord(Display *dpy, const Arg *arg);
-*/
-
-void quit(Display *dpy, const Arg *arg);
-void terminal_kitty(Display *dpy, const Arg *arg);
-void close_window(Display *dpy, const Arg *arg);
-void kill_client(Display *dpy, const Arg *arg);
-void focus(Display *dpy, const Arg *arg);
-void move_workspace(Display *dpy, const Arg *arg);
-void activate_chord(Display *dpy, const Arg *arg);
-
-#include "config.h"
-
+   void quit(Display *dpy, const Arg *arg);
+   void terminal_kitty(Display *dpy, const Arg *arg);
+   void focus(Display *dpy, const Arg *arg);
+   void move_workspace(Display *dpy, const Arg *arg);
+   void activate_chord(Display *dpy, const Arg *arg);
+   */
 
 /*
-typedef struct {
-  Window window;
-  int x, y, width, height;
-  int is_master;
-} Client;
+   typedef struct {
+   Window window;
+   int x, y, width, height;
+   int is_master;
+   } Client;
 
-typedef union {
-  int i;
-  unsigned int ui;
-  float f;
-  Client client;
-  const char **c;
-  const void *v;
-} Arg;
+   typedef union {
+   int i;
+   unsigned int ui;
+   float f;
+   Client client;
+   const char **c;
+   const void *v;
+   } Arg;
 
-typedef struct {
-  unsigned int mod;
-  KeySym keysym;
-  void (*func)(Display *dpy, const Arg *arg);
-  const Arg arg;
-} Keybinding;
+   typedef struct {
+   unsigned int mod;
+   KeySym keysym;
+   void (*func)(Display *dpy, const Arg *arg);
+   const Arg arg;
+   } Keybinding;
 
-typedef struct {
-  Client *clients;
-  Client *focused;
-  int focused_idx;
-  int n_clients;
-  int id;
-} Workspace;
+   typedef struct {
+   Client *clients;
+   Client *focused;
+   int focused_idx;
+   int n_clients;
+   int id;
+   } Workspace;
 
-typedef struct {
-  int current_workspace;
-  Workspace workspaces[MAX_WORKSPACES];
-} WindowManager;
+   typedef struct {
+   int current_workspace;
+   Workspace workspaces[MAX_WORKSPACES];
+   } WindowManager;
 
-typedef struct {
-  KeySym key;
-  void (*action)(Display *dpy, const Arg *arg);
-  const Arg arg;
-} Chord;
-*/
+   typedef struct {
+   KeySym key;
+   void (*action)(Display *dpy, const Arg *arg);
+   const Arg arg;
+   } Chord;
+   */
 int KeyChordState = 0;
 
 
@@ -497,10 +506,10 @@ void auto_start(const char *argv[]) {
 }
 
 void kill_client(Display *dpy, const Arg *arg) {
-    Workspace *ws = &WM.workspaces[WM.current_workspace];
-    if (ws->focused) {
-        XKillClient(dpy, ws->focused->window);
-    }
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  if (ws->focused) {
+    XKillClient(dpy, ws->focused->window);
+  }
 }
 
 void auto_start_cmds() {
@@ -625,6 +634,35 @@ void setup_ewmh(Display *dpy) {
       1
       );
 }
+/*
+static const Keybinding keybindings[] = {
+  { MOD,               XK_Return,     terminal_kitty,    {.v = NULL} },
+  { MOD,               XK_a,          activate_chord,    {.v = NULL} },
+  { MOD,               XK_q,          close_window,      {.v = NULL} },
+  { MOD|SHIFT,         XK_q,          kill_client,       {.v = NULL} },
+  { MOD|SHIFT,         XK_e,          quit,              {.v = NULL} },
+
+  { MOD,               XK_h,          focus,             {.i = 0} }, // Left/Master
+  { MOD,               XK_l,          focus,             {.i = 1} }, // Right/Stack
+  { MOD,               XK_j,          focus,             {.i = 2} }, // Up
+  { MOD,               XK_k,          focus,             {.i = 3} }, // Down
+
+  { MOD,               XK_1,          move_workspace,    {.i = 0} },
+  { MOD,               XK_2,          move_workspace,    {.i = 1} },
+  { MOD,               XK_3,          move_workspace,    {.i = 2} },
+  { MOD,               XK_4,          move_workspace,    {.i = 3} },
+  { MOD,               XK_5,          move_workspace,    {.i = 4} },
+  { MOD,               XK_6,          move_workspace,    {.i = 5} },
+  { MOD,               XK_7,          move_workspace,    {.i = 6} },
+  { MOD,               XK_8,          move_workspace,    {.i = 7} },
+  { MOD,               XK_9,          move_workspace,    {.i = 8} },
+};
+*/
+
+/* Chords (Quick actions after MOD+A) */
+static const Chord chords[] = {
+  { XK_1, move_workspace, {.i = 0}    },
+};
 
 int main()
 {
@@ -639,6 +677,19 @@ int main()
   init_wm();
   update_current_desktop(dpy);
   auto_start_cmds();
+
+  Keybinding keybindings[] = {
+    { Mod1Mask, XK_Return, terminal_kitty, {.v = NULL} },
+    { Mod1Mask, XK_l, focus, {.i = 0}},
+    { Mod1Mask, XK_h, focus, {.i = 1}},
+    { Mod1Mask, XK_j, focus, {.i = 2}},
+    { Mod1Mask, XK_k, focus, {.i = 3}}
+  };
+  const Chord chords[] = {
+    { XK_1, move_workspace, {.i = 0}    },
+    { XK_2, move_workspace, {.i = 1}    },
+    { XK_3, move_workspace, {.i = 2}    },
+  };
 
   Workspace *ws = &WM.workspaces[WM.current_workspace];
 
