@@ -678,6 +678,8 @@ int main()
   update_current_desktop(dpy);
   auto_start_cmds();
 
+  printf("numlockmask = 0x%x\n", numlockmask);
+
   Keybinding keybindings[] = {
     { Mod1Mask, XK_Return, terminal_kitty, {.v = NULL} },
     { Mod1Mask, XK_l, focus, {.i = 0}},
@@ -725,7 +727,7 @@ int main()
       case KeyPress:
         KeySym key = XLookupKeysym(&event.xkey, 0);
         unsigned int mods = event.xkey.state;
-        unsigned int cleanmods = mods & (ShiftMask | ControlMask | Mod1Mask | Mod4Mask);
+        unsigned int cleanmods = mods & (ShiftMask | ControlMask | Mod1Mask);
 
         if(KeyChordState == 1) {
           handle_chord(dpy, chords, n_chords, key);
