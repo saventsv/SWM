@@ -1,175 +1,303 @@
-// IMPORTANT I am redoing this in redo.c because this one does not work and I can make it better
-
-
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include <X11/keysym.h>
-#include <signal.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <X11/X.h>
-/* ... other system includes ... */
+
+/* ==================== Global Constant Definitions ==================== */
 
 #define MAX_WORKSPACES 9
-typedef struct {
+#define MAX_CHORD 4
+#define CLEANMASK(mask) (mask & ~(LockMask | numlockmask))  
+
+/* ==================== Global Constant Definitions ==================== */
+// We use a variable for numlock because its mask varies by system (usually Mod2Mask)
+extern unsigned int numlockmask; 
+
+
+/* ==================== Struct Definitions ==================== */
+
+// Basic Hierarchy WindowManager -> Workspace -> Client
+typedef struct Client
+{
   Window window;
   int x, y, width, height;
-  int is_master;
+  int is_scratchpad;
+  // Linked list
+  struct Client *next_client;
 } Client;
 
-typedef union {
+typedef struct
+{
+  Client *master_client;
+  Client *focused;
+  Client *last_focused;
+  int n_clients;
+  int n_scratchpads;
+  int id;
+} Workspace;
+
+typedef struct 
+{
+  int current_workspace;
+  Workspace workspaces[MAX_WORKSPACES];
+  int key_state;
+  int running;
+} WindowManager;
+
+
+// Argument for shell commands and startup commands
+typedef union 
+{
   int i;
-  unsigned int ui;
-  float f;
   Client client;
-  const char **c;
+  const char *c;
   const void *v;
 } Arg;
 
-typedef struct {
+// Keybinds and Key Chords
+
+typedef struct 
+{
   unsigned int mod;
-  KeySym keysym;
+  KeySym key;
+  // Function pointer for callbacks
   void (*func)(Display *dpy, const Arg *arg);
   const Arg arg;
 } Keybinding;
 
-typedef struct {
-  Client *clients;
-  Client *focused;
-  int focused_idx;
-  int n_clients;
-  int id;
-} Workspace;
-
-typedef struct {
-  int current_workspace;
-  Workspace workspaces[MAX_WORKSPACES];
-} WindowManager;
-
-typedef struct {
+typedef struct 
+{
   KeySym key;
-  void (*action)(Display *dpy, const Arg *arg);
+  void (*func)(Display *dpy, const Arg *arg);
   const Arg arg;
 } Chord;
-/* Appearance */
-static const int borders        = 2;
-static const int gaps           = 10;
-static const unsigned long active_color = 0x00FF00; 
-static const unsigned long idle_color   = 0x444444;
-static const float master_ratio         = 0.5;
 
-/* Autostart */
-static const char *autostart_cmds[][10] = {
-  {NULL}
-};
+// Productivity
 
-/* Keybindings */
-#define MOD Mod1Mask
-#define ALT Mod1Mask
-#define SHIFT ShiftMask
+typedef struct
+{
+  const char *name;
+  const char *cmd;
+  const char *class;
+} Scratchpad;
 
-// 1. DEFINE YOUR TYPES FIRST
+typedef struct {
+  int left, right, top, bottom;
+} Strut;
 
+Strut global_strut = {0};
 
-// 2. DECLARE YOUR FUNCTIONS (Prototypes)
-// This tells config.h that these functions exist somewhere
-/*
-   void quit(Display *dpy, const Arg *arg);
-   void terminal_kitty(Display *dpy, const Arg *arg);
-   void focus(Display *dpy, const Arg *arg);
-   void move_workspace(Display *dpy, const Arg *arg);
-   void activate_chord(Display *dpy, const Arg *arg);
-   */
+/* ==================== User Accessible Function Declarations ==================== */
 
-/*
-   typedef struct {
-   Window window;
-   int x, y, width, height;
-   int is_master;
-   } Client;
+void focus(Display *dpy, const Arg *arg);
 
-   typedef union {
-   int i;
-   unsigned int ui;
-   float f;
-   Client client;
-   const char **c;
-   const void *v;
-   } Arg;
+void move_window(Display *dpy, const Arg *arg);
 
-   typedef struct {
-   unsigned int mod;
-   KeySym keysym;
-   void (*func)(Display *dpy, const Arg *arg);
-   const Arg arg;
-   } Keybinding;
+void spawn(Display *dpy, const Arg *arg);
 
-   typedef struct {
-   Client *clients;
-   Client *focused;
-   int focused_idx;
-   int n_clients;
-   int id;
-   } Workspace;
+void activate_chord(Display *dpy, const Arg *arg);
 
-   typedef struct {
-   int current_workspace;
-   Workspace workspaces[MAX_WORKSPACES];
-   } WindowManager;
+void close_window(Display *dpy, const Arg *arg);
 
-   typedef struct {
-   KeySym key;
-   void (*action)(Display *dpy, const Arg *arg);
-   const Arg arg;
-   } Chord;
-   */
-int KeyChordState = 0;
+void focus_workspace(Display *dpy, const Arg *arg);
+
+void move_window_workspace(Display *dpy, const Arg *arg);
+
+void spawn_scratchpad(Display *dpy, const Arg *arg);
 
 
-int running = 1;
-
-
-unsigned int top_margin = 0;
-
-Window top_bar = None;
+/* ==================== Global Variable Definitions ==================== */
 
 WindowManager WM;
 
-Atom net_wm_name, net_supporting_wm_check, net_active_window, net_current_desktop, net_number_of_desktops;
 
-void quit(Display *dpy, const Arg *arg) {
-  running = 0;
+/* ==================== Function Definitions ==================== */
+
+// Include user config file
+#include "config.h"
+
+int total_scratchpads = sizeof(scratchpads) / sizeof(Scratchpad);
+int bar_height = 0;
+
+/* MISC */
+
+unsigned int numlockmask = 0;
+
+void setup_numlockmask(Display *dpy) {
+  XModifierKeymap *modmap;
+  KeyCode numlock_code = XKeysymToKeycode(dpy, XK_Num_Lock);
+  modmap = XGetModifierMapping(dpy);
+
+  // X11 has 8 modifiers: Shift, Lock, Control, and Mod1 through Mod5
+  for (int i = 0; i < 8; i++) {
+    for (int j = 0; j < modmap->max_keypermod; j++) {
+      if (modmap->modifiermap[i * modmap->max_keypermod + j] == numlock_code) {
+        numlockmask = (1 << i);
+      }
+    }
+  }
+  XFreeModifiermap(modmap);
 }
 
-void init_wm() {
+unsigned long get_color(Display *dpy, const char *color_name) {
+  Colormap cmap = DefaultColormap(dpy, DefaultScreen(dpy));
+  XColor color;
+  XAllocNamedColor(dpy, cmap, color_name, &color, &color);
+  return color.pixel;
+}
 
-  for(int i = 0; i < MAX_WORKSPACES; i++) {
-    WM.workspaces[i].clients = NULL;
+void update_borders(Display *dpy) {
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  unsigned long active_px = get_color(dpy, color_active);
+  unsigned long inactive_px = get_color(dpy, color_inactive);
+  unsigned long chord_px = get_color(dpy, color_chord);
+
+  Client *client = ws -> master_client;
+
+  while(client)
+  {
+    if(client == ws -> focused)
+    {
+      if(WM.key_state == 0)
+      {
+        if(client -> window)
+          XSetWindowBorder(dpy, client -> window, active_px);
+      }
+      else
+      {
+        if(client -> window)
+          XSetWindowBorder(dpy, client -> window, chord_px);
+      }
+    }
+    else
+    {
+      if(client -> window)
+        XSetWindowBorder(dpy, client -> window, inactive_px);
+    }
+    client = client -> next_client;
+  }
+}
+
+// Function that Handles finding the height of a bar to allow for tile to accomodate the windows
+void update_bar_height(Display *dpy)
+{
+  Atom strut_atom = XInternAtom(dpy, "_NET_WM_STRUT_PARTIAL", False);
+  Atom type;
+  int format;
+  unsigned long nitems, bytes_after;
+  unsigned char *data = NULL;
+
+  bar_height = 0;
+
+  Window root = DefaultRootWindow(dpy);
+  Window parent, *children;
+  unsigned int nchildren;
+
+  if (!XQueryTree(dpy, root, &root, &parent, &children, &nchildren))
+    return;
+
+  for (unsigned int i = 0; i < nchildren; i++) 
+  {
+    if (XGetWindowProperty(dpy, children[i], strut_atom,
+          0, 12, False, XA_CARDINAL,
+          &type, &format, &nitems, &bytes_after,
+          &data) == Success && data) 
+    {
+
+      long *strut = (long *)data;
+
+      if (nitems >= 3 && strut[2] > bar_height) 
+      {
+        bar_height = strut[2];
+      }
+
+      XFree(data);
+    }
+  }
+
+  if (children) XFree(children);
+}
+
+void update_current_desktop(Display *dpy)
+{
+  Atom net_current = XInternAtom(dpy, "_NET_CURRENT_DESKTOPS", False);
+
+  unsigned long current = WM.current_workspace;
+
+  unsigned long num = MAX_WORKSPACES;
+
+  XChangeProperty(
+      dpy, 
+      DefaultRootWindow(dpy), 
+      net_current, 
+      XA_CARDINAL, 
+      32, 
+      PropModeReplace, 
+      (unsigned char *)&current, 
+      1
+      );
+}
+
+void set_number_of_desktops(Display *dpy) 
+{
+  Atom net_number = XInternAtom(dpy, "_NET_NUMBER_OF_DESKTOPS", False);
+
+  unsigned long num = MAX_WORKSPACES;
+
+  XChangeProperty(
+      dpy,
+      DefaultRootWindow(dpy),
+      net_number,
+      XA_CARDINAL,
+      32,
+      PropModeReplace,
+      (unsigned char *)&num,
+      1
+      );
+}
+
+void set_supported_atoms(Display *dpy)
+{
+  Atom net_supported = XInternAtom(dpy, "_NET_SUPPORTED", False);
+
+  Atom atoms[] = {
+    XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False),
+    XInternAtom(dpy, "_NET_NUMBER_OF_DESKTOPS", False),
+    XInternAtom(dpy, "_NET_SUPPORTED", False)
+  };
+
+  XChangeProperty(
+      dpy, 
+      DefaultRootWindow(dpy), 
+      net_supported, 
+      XA_ATOM, 
+      32, 
+      PropModeReplace, 
+      (unsigned char *)atoms, 
+      2
+      );
+}
+
+
+void init_wm()
+{
+  for(int i = 0; i < MAX_WORKSPACES; i++)
+  {
+    WM.workspaces[i].master_client = NULL;
+    // -1 means no windows
     WM.workspaces[i].focused = NULL;
-    WM.workspaces[i].focused_idx = 0;
     WM.workspaces[i].n_clients = 0;
     WM.workspaces[i].id = i;
   }
   WM.current_workspace = 0;
-}
-
-Atom get_window_type(Display *dpy, Window w) {
-  Atom actual_type;
-  int actual_format;
-  unsigned long nitems, bytes_after;
-  unsigned char *prop = NULL;
-  Atom net_wm_window_type = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
-
-  if (XGetWindowProperty(dpy, w, net_wm_window_type, 0, sizeof(Atom), False, XA_ATOM,
-        &actual_type, &actual_format, &nitems, &bytes_after, &prop) == Success && prop) {
-    Atom type = *(Atom *)prop;
-    XFree(prop);
-    return type;
-  }
-  return None;
+  WM.running = 1;
 }
 
 int has_proto(Display *dpy, Window w, Atom protocol) {
@@ -184,241 +312,564 @@ int has_proto(Display *dpy, Window w, Atom protocol) {
   return found;
 }
 
-void update_active_window(Display *dpy) {
+int is_scratchpad(Display *dpy, Client *client)
+{
   Workspace *ws = &WM.workspaces[WM.current_workspace];
-  Window w = (ws -> focused) ? ws -> focused -> window : None;
 
-  XChangeProperty(dpy, DefaultRootWindow(dpy), net_active_window, XA_WINDOW, 32, 
-      PropModeReplace, (unsigned char *) &w, 1);
+  XClassHint class_hint = {0};
+
+  if(!XGetClassHint(dpy, client -> window, &class_hint))
+    return 0;
+
+  int result = 0;
+
+  for(int i = 0; i < total_scratchpads; i++)
+  {
+    if(
+        scratchpads[i].class && 
+        class_hint.res_class && 
+        strcmp(class_hint.res_class, scratchpads[i].class) == 0
+      )
+    {
+      result = 1;
+      break;
+    }
+  }
+
+  if(class_hint.res_name) XFree(class_hint.res_name);
+  if(class_hint.res_class) XFree(class_hint.res_class);
+
+  return result;
+}
+
+void spawn_scratchpad(Display *dpy, const Arg *arg)
+{
+  if(!arg) return;
+
+  if(arg -> i < 0 || arg -> i >= total_scratchpads)
+    return;
+
+  Arg spawn_arg = {.c = scratchpads[arg -> i].cmd };
+  spawn(dpy, &spawn_arg);
+  update_borders(dpy);
 }
 
 
-void tile(Display *dpy) {
+/* Windows */
+
+void tile(Display *dpy)
+{
+
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  if(!ws -> master_client) return;
+
+  update_bar_height(dpy);
+
+  // Needed Declarations
   int screen = DefaultScreen(dpy);
   int screen_width = DisplayWidth(dpy, screen);
-  int screen_height = DisplayHeight(dpy, screen) - top_margin;
-  int screen_y = top_margin;
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  int screen_height = DisplayHeight(dpy, screen) - bar_height;
+  int tiled = ws -> n_clients - ws -> n_scratchpads;
+  // MASTER_RATIO from conifig file
+  int master_width = ( tiled > 1 ) ? screen_width * master_ratio: screen_width ;
+  int master_height = screen_height;
+  int stack_width = screen_width - master_width;
+  int stack_x = master_width;
+
+  int offset_y = bar_height;
 
 
+  Client *client = ws -> master_client;
 
-  for(int i = 0; i < ws -> n_clients; i++) {
-    if (i == 0) {
-      ws -> clients[i].is_master = 1;
-      ws -> clients[i].x = 0;
-      ws -> clients[i].y = screen_y;
-      ws -> clients[i].width = (ws -> n_clients == 1)? screen_width: screen_width * master_ratio;
-      ws -> clients[i].height = screen_height;
-      XMoveResizeWindow(
-          dpy, 
-          ws -> clients[i].window, 
-          ws -> clients[i].x + gaps, 
-          ws -> clients[i].y + gaps, 
-          ws -> clients[i].width - (2 * gaps) - (2 * borders), 
-          ws -> clients[i].height - (2 * gaps) - (2 * borders)
-          );
-      XSetWindowBorderWidth(dpy, ws -> clients[i].window, borders);
-    } else {
-      ws -> clients[i].x = screen_width * master_ratio;
-      ws -> clients[i].height = screen_height / ( ws -> n_clients - 1);
-      ws -> clients[i].y = top_margin + (i - 1) * ws -> clients[i].height;
-      ws -> clients[i].width = screen_width * ( 1 - master_ratio); 
-      XMoveResizeWindow(
-          dpy, 
-          ws -> clients[i].window, 
-          ws -> clients[i].x + gaps, 
-          ws -> clients[i].y + gaps, 
-          ws -> clients[i].width - (2 * gaps) - (2 * borders), 
-          ws -> clients[i].height - (2 * gaps) - (2 * borders)
-          );
-      XSetWindowBorderWidth(dpy, ws -> clients[i].window, borders);
-      XSetWindowBorder(dpy, ws -> clients[i].window, (i == ws -> focused_idx) ? active_color: idle_color);
+  unsigned long active_px = get_color(dpy, color_active);
+  unsigned long inactive_px = get_color(dpy, color_inactive);
+
+  int i = 0;
+  while(client) 
+  {
+
+    switch(client -> is_scratchpad)
+    {
+      case 0:
+        {
+
+          if ( i == 0 ) 
+          {
+            XSetWindowBorderWidth(dpy, client -> window, border_width);
+            if(client == ws -> focused)
+              XSetWindowBorder(dpy, client -> window, active_px);
+            else
+              XSetWindowBorder(dpy, client -> window, inactive_px);
+            XMoveResizeWindow(
+                dpy, 
+                client -> window, 
+                0 + gaps, 
+                offset_y + gaps, 
+                master_width - (gaps * 2) - (border_width * 2), 
+                master_height - (gaps * 2) - (border_width * 2)
+                );
+            client -> x = 0;
+            client -> y = 0;
+            client -> width = master_width;
+            client -> height = master_height;
+          }
+          else
+          {
+            int stack_count = ws -> n_clients - ws -> n_scratchpads - 1;
+            if(stack_count <= 0)
+            {
+              client = client -> next_client;
+              i++;
+              continue;
+            }
+            int stack_height = screen_height / stack_count;
+            int stack_y = stack_height * (i - 1);
+            XSetWindowBorderWidth(dpy, client -> window, border_width);
+            if(client == ws -> focused)
+              XSetWindowBorder(dpy, client -> window, active_px);
+            else
+              XSetWindowBorder(dpy, client -> window, inactive_px);
+
+            XMoveResizeWindow(
+                dpy, 
+                client -> window, 
+                stack_x + gaps, 
+                stack_y + gaps + offset_y, 
+                stack_width - (gaps * 2) - (border_width * 2), 
+                stack_height - (gaps * 2) - (border_width * 2)
+                );
+            client -> x = stack_x;
+            client -> y = stack_y;
+            client -> width = stack_width;
+            client -> height = stack_height;
+          }
+          client = client -> next_client;
+          i++;
+          break;
+        }
+      case 1:
+        {
+          int pad_height = screen_height * scratchpad_height;
+          int pad_width = screen_width * scratchpad_width;
+          int pad_x = (screen_width - pad_width) / 2;
+          int pad_y = (screen_height - pad_height) / 2;
+
+          XMoveResizeWindow(dpy, 
+              client -> window, 
+              pad_x, 
+              pad_y, 
+              pad_width - (gaps * 2) - (border_width * 2), 
+              pad_height - (gaps * 2) - (border_width * 2) 
+              );
+          XRaiseWindow(dpy, client -> window);
+
+          client -> x = pad_x;
+          client -> y = pad_y;
+          client -> width = pad_width;
+          client -> height = pad_height;
+
+          client = client -> next_client;
+          continue;
+        }
     }
+
   }
 }
 
-void update_struts(Display *dpy, Window w) {
-  Atom actual_type;
-  int actual_format;
-  unsigned long nitems, bytes_after;
-  unsigned char *prop = NULL;
-  Atom net_wm_strut = XInternAtom(dpy, "_NET_WM_STRUT_PARTIAL", False);
-
-  if (XGetWindowProperty(dpy, w, net_wm_strut, 0, 12, False, XA_CARDINAL,
-        &actual_type, &actual_format, &nitems, &bytes_after, &prop) == Success && prop) {
-    unsigned long *struts = (unsigned long *)prop;
-    // Index 2 is the top strut
-    top_margin = (unsigned int)struts[2];
-    XFree(prop);
-    printf("Detected bar height: %u pixels\n", top_margin);
-  }
-}
-
-
-// 0 = left
-// 1 = right
-// 2 = up
-// 3 = down
-
-void focus(Display *dpy, const Arg *direction) {
+Client *find_prev_client(Client *client)
+{
   Workspace *ws = &WM.workspaces[WM.current_workspace];
+  Client *prev_client = NULL;
+  Client *curr_client = ws -> master_client;
 
-  if (ws -> n_clients == 0) return;
+  while(curr_client)
+  {
+    if (curr_client == client)
+      return prev_client;
 
-  // Find the index of the currently focused window
-  int idx = -1;
-  if (ws -> focused) {
-    for (int i = 0; i < ws -> n_clients; i++) {
-      if (ws -> clients[i].window == ws -> focused ->window) {
-        idx = i;
+    prev_client = curr_client;
+    curr_client = curr_client -> next_client;
+  }
+
+  return NULL;
+}
+
+Client *find_last_client(Workspace *ws)
+{
+  Client *last_client = ws -> master_client;
+
+  if(!last_client) return NULL;
+
+  while(last_client -> next_client)
+  {
+    last_client = last_client -> next_client;
+  }
+
+  return last_client;
+}
+
+// left = 0
+// right = 1
+// up = 2
+// down = 3
+void focus(Display *dpy, const Arg *arg) 
+{
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  Client *client = ws -> master_client;
+  // i will be used as a index
+  int i = 0;
+
+  if(!arg || arg -> i > 3 || arg -> i < 0) return;
+  if(ws -> n_clients < 2) return;
+
+  switch(arg -> i)
+  {
+
+    case 0:
+      {
+        while(client)
+        {
+          if(client == ws -> focused)
+          {
+            if(i > 0)
+            {
+              ws -> last_focused = ws -> focused;
+              ws -> focused = ws -> master_client;
+              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              break;
+            }
+            else 
+            {
+              ws -> last_focused = ws -> focused;
+              ws -> focused = ws -> master_client -> next_client;
+              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              break;
+            }
+          }
+          i++;
+          client = client -> next_client;
+        }
         break;
       }
-    }
+    case 1:
+      {
+        while(client)
+        {
+          if(client == ws -> focused)
+          {
+            if(i == 0)
+            {
+              if(ws -> last_focused)
+              {
+                Client *tmp = ws -> focused;
+                ws -> focused = ws -> last_focused;
+                ws -> last_focused = tmp;
+              }
+              else
+              {
+                ws -> last_focused = ws -> focused;
+                ws -> focused = ws -> master_client -> next_client;
+              }
+              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              break;
+            }
+            else
+            {
+              ws -> last_focused = ws -> focused;
+              ws -> focused = ws -> master_client;
+              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              break;
+            }
+          }
+          i++;
+          client = client -> next_client;
+        }
+        break;
+      }
+    case 2:
+      {
+        while(client)
+        {
+          if(client == ws -> focused)
+          {
+            if(i == 0)
+            {
+              Client *last_client = find_last_client(ws);
+              ws -> last_focused = ws -> focused;
+              ws -> focused = last_client;
+              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              break;
+            }
+            else if (i == 1)
+            {
+              ws -> last_focused = ws -> focused;
+              ws -> focused = ws -> master_client;
+              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              break;
+            } 
+            else
+            {
+              Client *prev_client = find_prev_client(client);
+              ws -> last_focused = ws -> focused;
+              ws -> focused = prev_client;
+              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              break;
+            }
+          }
+          i++;
+          client = client -> next_client;
+        }
+        break;
+      }
+    case 3:
+      {
+        while(client)
+        {
+          if(client == ws -> focused)
+          {
+            if(client -> next_client == NULL)
+            {
+              ws -> last_focused = ws -> focused;
+              ws -> focused = ws -> master_client;
+              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              break;
+            }
+            else
+            {
+              ws -> last_focused = ws -> focused;
+              ws -> focused = ws -> focused -> next_client;
+              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              break;
+            }
+          }
+          i++;
+          client = client -> next_client;
+        }
+        break;
+      }
   }
-
-  // If nothing is focused, default to Master
-  if (idx == -1) idx = 0;
-
-  int next_idx = idx;
-
-  switch(direction -> i) {
-    case 0: // Left
-      next_idx = 0; 
-      break;
-    case 1: // Right
-      if (idx == 0 && ws -> n_clients > 1) next_idx = 1;
-      break;
-    case 2: // Up
-      if (idx > 1) next_idx = idx - 1;
-      else if (idx == 1) next_idx = ws -> n_clients - 1; // Wrap within stack
-      break;
-    case 3: // Down
-      if (idx > 0 && idx < ws -> n_clients - 1) next_idx = idx + 1;
-      else if (idx == ws -> n_clients - 1) next_idx = 1; // Wrap within stack
-      break;
-  }
-
-  ws -> focused = &ws -> clients[next_idx];
-  ws -> focused_idx = next_idx;
-
-  update_active_window(dpy);
-
-  XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
-  XRaiseWindow(dpy, ws -> focused -> window);
 }
 
-void update_borders(Display *dpy) {
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
-  for(int i = 0; i < ws -> n_clients; i++) {
-    XSetWindowBorderWidth(dpy, ws -> clients[i].window, borders);
-    XSetWindowBorder(dpy, ws -> clients[i].window, (i == ws -> focused_idx) ? active_color: idle_color);
-  }
-}
+void focus_workspace(Display *dpy, const Arg *arg)
+{
 
-void update_current_desktop(Display *dpy) {
-  unsigned long current = (unsigned long)WM.current_workspace;
-  XChangeProperty(dpy, DefaultRootWindow(dpy), net_current_desktop, XA_CARDINAL, 32, 
-      PropModeReplace, (unsigned char *) &current, 1);
-}
+  // NULL check and check if in range for workspaces
+  if (!arg || arg -> i < 0 || arg -> i >= MAX_WORKSPACES || arg -> i == WM.current_workspace)
+    return;
 
-void move_workspace(Display *dpy, const Arg *arg) {
-  Workspace *old_ws = &WM.workspaces[WM.current_workspace];
+  Workspace *old_ws = &WM.workspaces[WM.current_workspace]; 
 
-  for(int i = 0; i < old_ws -> n_clients; i++) {
-    XUnmapWindow(dpy, old_ws -> clients[i].window);
+
+  Client *client = old_ws -> master_client;
+
+  while(client)
+  {
+    XUnmapWindow(dpy, client -> window);
+    client = client -> next_client;
   }
 
   WM.current_workspace = arg -> i;
 
-  Workspace *next_ws = &WM.workspaces[arg -> i];
+  Workspace *ws = &WM.workspaces[WM.current_workspace]; 
 
-  if(next_ws -> n_clients == 0) tile(dpy);
-  else {
-    for(int i = 0; i < next_ws -> n_clients; i++) {
-      XMapWindow(dpy, next_ws -> clients[i].window);
-    }
-    if(next_ws -> focused != NULL) {
-      XSetInputFocus(dpy, next_ws -> focused -> window, RevertToParent, CurrentTime);
-    }
+  // Don't do Anything if there is no windows
+
+  client = ws -> master_client;
+
+  while(client)
+  {
+    XMapWindow(dpy, client -> window);
+    client = client -> next_client;
+  }
+
+  if(ws -> focused)
+    XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+  else
+    XSetInputFocus(dpy, DefaultRootWindow(dpy), RevertToPointerRoot, CurrentTime);
+
+  update_current_desktop(dpy);
+
+  tile(dpy);
+  update_borders(dpy);
+}
+
+void move_window_workspace(Display *dpy, const Arg *arg)
+{
+
+  // Range and NULL Check
+  if (!arg || arg -> i < 0 || arg -> i >= MAX_WORKSPACES || arg -> i == WM.current_workspace)
+    return;
+
+  Workspace *curr_ws = &WM.workspaces[WM.current_workspace];
+  Workspace *new_ws = &WM.workspaces[arg -> i];
+
+
+  // Check if There is a Window to Move
+  if(!curr_ws -> focused) return;
+
+  Client *client =  curr_ws -> focused;
+
+  Client *prev_client = find_prev_client(client);
+
+  // Check If Current Window is master
+  if(!prev_client)
+  {
+    curr_ws -> master_client = client -> next_client;
+    curr_ws -> focused = client -> next_client;
+  }
+  else
+  {
+    prev_client -> next_client = client -> next_client;
+    curr_ws -> focused = prev_client;
+  }
+
+  XUnmapWindow(dpy, client -> window);
+
+  // check if there is a master window
+  if(new_ws -> master_client)
+  {
+    Client *last_client = find_last_client(new_ws);
+    last_client -> next_client = client;
+    client -> next_client = NULL;
+    new_ws -> focused = client;
 
     tile(dpy);
     update_borders(dpy);
-    update_current_desktop(dpy);
+  }
+  else
+  {
+    new_ws -> master_client = client;
+    client -> next_client = NULL;
+
+    new_ws -> focused = client;
+
+    tile(dpy);
+    update_borders(dpy);
   }
 
 
+  curr_ws -> n_clients--;
+  new_ws -> n_clients++;
+
+  focus_workspace(dpy, arg);
 }
 
-void move_window(Display *dpy, const Arg *direction) {
+
+void swap_next_client(Client *client)
+{
+
   Workspace *ws = &WM.workspaces[WM.current_workspace];
 
-  int idx = -1;
-  if (ws -> focused) {
-    for (int i = 0; i < ws -> n_clients; i++) {
-      if (ws -> clients[i].window == ws -> focused ->window) {
-        idx = i;
-        break;
-      }
-    }
-  }
+  // NULL check 
+  if(!client || !client -> next_client) return;
 
-  if(ws -> n_clients < 2) return;
+  Client *next_client = client -> next_client;
+  Client *prev_client = find_prev_client(client);
 
+  client -> next_client = next_client -> next_client;
+  next_client -> next_client = client;
 
-  switch (direction -> i) {
+  if(prev_client)
+    prev_client -> next_client = next_client;
+  else 
+    ws -> master_client = next_client;
+}
+
+void swap_with_prev(Client *client)
+{
+  Client *prev_client = find_prev_client(client);
+  if(!prev_client)
+    return;
+  swap_next_client(prev_client);
+}
+
+void move_window(Display *dpy, const Arg *arg)
+{
+  // Needed Declarations
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  Client *client = ws -> focused;
+
+  // NULL and range check
+  if(!arg || arg -> i > 3 || arg -> i < 0) return;
+
+  switch(arg -> i)
+  {
 
     case 0:
       {
-        if(idx == 0) break;
+        // If trying to move master client left don't do anything
+        if (!client || client == ws -> master_client) break;
 
-        Client tmp = ws -> clients[idx];
-        ws -> clients[idx] = ws -> clients[0];
-        ws -> clients[idx].is_master = 0;
-        ws -> clients[0] = tmp;
-        ws -> clients[0].is_master = 1;
-        ws -> focused = &ws -> clients[0];
-        ws -> focused_idx = 0;
+        Client *prev_client = find_prev_client(client);
+        Client *master = ws -> master_client;
+
+        if(!prev_client) break;
+
+        if(prev_client == master)
+        {
+          master -> next_client = client -> next_client;
+          client -> next_client = master;
+          ws -> master_client = client;
+        }
+        else
+        {
+          Client *tmp = master -> next_client;
+
+          prev_client -> next_client = master;
+          master -> next_client = client -> next_client;
+          client -> next_client = tmp;
+          ws -> master_client = client;
+        }
+
+        ws -> focused = ws -> master_client;
+
+        XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
         tile(dpy);
         update_borders(dpy);
         break;
       }
-    case 1: 
+    case 1:
       {
-        if(idx > 0) break;
-
-        Client tmp = ws -> clients[0];
-        ws -> clients[0] = ws -> clients[1];
-        ws -> clients[0].is_master = 1;
-        ws -> clients[1] = tmp;
-        ws -> clients[1].is_master = 0;
-        ws -> focused = &ws -> clients[1];
-        ws -> focused_idx = 1;
-        tile(dpy);
-        update_borders(dpy);
-        break;
-
-      }
-    case 2: 
-      {
-        if (idx == 0) break;
-
-        Client tmp = ws -> clients[idx - 1];
-        ws -> clients[idx - 1] =  ws -> clients[idx];
-        ws -> clients[idx] = tmp;
-        ws -> focused = &ws -> clients[idx - 1];
-        ws -> focused_idx = idx - 1;
+        // If it is not master don't do anything because it is in the stack
+        if(client != ws -> master_client) break;
+        swap_next_client(ws -> master_client);
+        ws -> focused = ws -> master_client -> next_client;
+        XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
         tile(dpy);
         update_borders(dpy);
         break;
       }
-    case 3: 
+    case 2:
       {
-        if (idx == ws -> n_clients - 1) break;
-        Client tmp = ws -> clients[idx + 1];
-        ws -> clients[idx + 1] =  ws -> clients[idx];
-        ws -> clients[idx] = tmp;
-        ws -> focused = &ws -> clients[idx + 1];
-        ws -> focused_idx = idx + 1;
+        if(client == ws -> master_client) break;
+
+        swap_with_prev(client);
+        Client *curr_client = ws -> master_client;
+        if(client == ws -> master_client)
+        {
+          ws -> focused = ws -> master_client;
+          XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
+        }
+        else
+        {
+          while(curr_client -> next_client != client)
+          {
+            curr_client = curr_client -> next_client;
+          }
+          ws -> focused = curr_client -> next_client;
+          XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
+        }
+        tile(dpy);
+        update_borders(dpy);
+        break;
+      }
+    case 3:
+      {
+        if(client == find_last_client(ws)) break;
+
+        swap_next_client(client);
+        ws -> focused = client;
+        XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
         tile(dpy);
         update_borders(dpy);
         break;
@@ -426,60 +877,104 @@ void move_window(Display *dpy, const Arg *direction) {
   }
 }
 
-void move_window_workspace(Display *dpy, const Arg *workspace) {
+void close_window(Display *dpy, const Arg *arg)
+{
   Workspace *ws = &WM.workspaces[WM.current_workspace];
-  Workspace *next_ws = &WM.workspaces[workspace -> i];
+  Client *client = ws -> focused;
 
-  if(ws -> focused == NULL) return;
+  if(!client) return;
 
-  next_ws -> clients = realloc(next_ws -> clients, sizeof(Client) * (next_ws -> n_clients + 1));
-  next_ws -> clients[next_ws -> n_clients] = ws -> clients[ws -> focused_idx];
-  next_ws -> n_clients++;
+  Atom WM_DELETE_WINDOW = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+  Atom WM_PROTOCOLS = XInternAtom(dpy, "WM_PROTOCOLS", False);
+  Atom proto = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
 
-  next_ws -> focused = &next_ws -> clients[next_ws -> n_clients - 1];
-  next_ws -> focused_idx = next_ws->n_clients - 1;
+  XEvent event = {0};
 
-
-  XUnmapWindow(dpy, ws -> clients[ws -> focused_idx].window);
-
-  for (int i = ws -> focused_idx; i < ws -> n_clients - 1; i++)
-    ws -> clients[i] = ws -> clients[i + 1];
-  ws -> n_clients--;
-
-  ws -> focused_idx = ws -> n_clients - 1;
-  ws -> focused = (ws -> n_clients > 0) ? &ws -> clients[ws -> n_clients - 1] : NULL;
-
-
-  WM.current_workspace = workspace -> i;
-
-  for (int i = 0; i < next_ws -> n_clients; i++) {
-    XMapWindow(dpy, next_ws -> clients[i].window);
+  if(has_proto(dpy, client -> window, proto))
+  {
+    event.xclient.type = ClientMessage;
+    event.xclient.window = client -> window;
+    event.xclient.message_type = WM_PROTOCOLS;
+    event.xclient.format = 32;
+    event.xclient.data.l[0] = WM_DELETE_WINDOW;
+    event.xclient.data.l[1] = CurrentTime;
+    XSendEvent(dpy, client -> window, False, NoEventMask, &event);
+  } else {
+    XKillClient(dpy, client -> window);
   }
 
-  if(next_ws -> focused)
-    XSetInputFocus(dpy, next_ws -> focused -> window, RevertToParent, CurrentTime);
-  XRaiseWindow(dpy, next_ws -> focused -> window);
-
+  XFlush(dpy);
 }
 
 
-void cleanup_zombies(int sig) {
-  while (waitpid(-1, NULL, WNOHANG) > 0);
+
+/* Keybinds */
+void handle_chord(Display *dpy, const Chord chords[], int n_chords, KeySym key) {
+
+  int matched = 0;
+
+  for(int i = 0; i < n_chords; i++) {
+    if(chords[i].key == key) {
+      chords[i].func(dpy, &chords[i].arg);
+
+      matched = 1;
+      break;
+    }
+  }
+
+  if(!matched) {
+    WM.key_state = 0;
+    XUngrabKeyboard(dpy, CurrentTime);
+  }
 }
 
-void terminal(Display *dpy) {
+void activate_chord(Display *dpy, const Arg *arg) {
+  WM.key_state = 1;
+
+  if (XGrabKeyboard(dpy, DefaultRootWindow(dpy), True,
+        GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
+    WM.key_state = 0; 
+  }
+}
+
+
+
+
+
+/* Executing Commands */
+
+void spawn(Display *dpy, const Arg *arg)
+{
+  if (!arg || !arg -> c) return;
+
   pid_t pid = fork();
-  if (pid == 0) {
+
+  if (pid == 0)
+  {
     setsid();
-    execlp("/usr/bin/xterm", "xterm", NULL);
-    perror("execlp");
+    execl("/bin/sh", "sh", "-c", arg -> c, NULL);
+    perror("execl");
     exit(1);
   }
 }
 
-void terminal_kitty(Display *dpy, const Arg *arg) {
+void run_startup(Display *dpy) 
+{
+  for (int i = 0; startup_commands[i] != NULL; i++) 
+  {
+    Arg arg = { .c = startup_commands[i] };
+    spawn(dpy, &arg);
+  }
+}
+
+
+/* ==================== Place Holders ==================== */
+
+void kitty(Display *dpy, const Arg *arg) 
+{
   pid_t pid = fork();
-  if (pid == 0) {
+  if (pid == 0) 
+  {
     setsid();
     setenv("WLR_BACKENDS", "x11", 1); 
     setenv("QT_QPA_PLATFORM", "xcb", 1);
@@ -493,320 +988,262 @@ void terminal_kitty(Display *dpy, const Arg *arg) {
 }
 
 
-// this will be used for auto start commands
-void auto_start(const char *argv[]) {
-  pid_t pid = fork();
-
-  if (pid == 0) {
-    setsid();
-    execvp(argv[0], (char *const *)argv);
-    perror("execlp");
-    exit(1);
-  }
-}
-
-void kill_client(Display *dpy, const Arg *arg) {
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
-  if (ws->focused) {
-    XKillClient(dpy, ws->focused->window);
-  }
-}
-
-void auto_start_cmds() {
-  for(int i = 0; autostart_cmds[i][0] != NULL; i++) {
-    auto_start(autostart_cmds[i]);
-  }
-}
-
-void spawn(Display *dpy, const Arg *arg) {
-  pid_t pid = fork();
-
-  if (pid == 0) {
-    setsid();
-    execvp(arg -> c[0], (char *const *) arg -> c);
-    perror("execlp");
-    exit(1);
-  }
-}
-
-void close_window(Display *dpy, const Arg *arg) {
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
-  Window window = ws -> focused -> window;
-  if (!ws -> focused) return;
-
-  Atom WM_DELETE_WINDOW = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
-  Atom WM_PROTOCOLS = XInternAtom(dpy, "WM_PROTOCOLS", False);
-  Atom proto = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
-
-  XEvent event = {0};
-
-
-  if(has_proto(dpy, window, proto)) {
-    event.xclient.type = ClientMessage;
-    event.xclient.window = window ;
-    event.xclient.message_type = WM_PROTOCOLS;
-    event.xclient.format = 32;
-    event.xclient.data.l[0] = WM_DELETE_WINDOW;
-    event.xclient.data.l[1] = CurrentTime;
-    XSendEvent(dpy, ws -> focused -> window, False, NoEventMask, &event);
-  } else {
-    XKillClient(dpy, window);
-  }
-
-  ws -> focused_idx = (ws -> n_clients > 0) ? ws -> n_clients - 1 : -1;
-  ws -> focused = (ws -> n_clients > 0) ? &ws -> clients[ws -> focused_idx] : NULL;
-
-  XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
-
-  XFlush(dpy);
-  if(ws -> n_clients > 0)
-    tile(dpy);
-}
-
-void activate_chord(Display *dpy, const Arg *arg) {
-  KeyChordState = 1;
-
-  if (XGrabKeyboard(dpy, DefaultRootWindow(dpy), True,
-        GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
-    KeyChordState = 0; 
-  }
-}
-
-void handle_chord(Display *dpy, const Chord chords[], int n_chords, KeySym key) {
-
-  int matched = 0;
-
-  for(int i = 0; i < n_chords; i++) {
-    if(chords[i].key == key) {
-      chords[i].action(dpy, &chords[i].arg);
-
-      matched = 1;
-      break;
-    }
-  }
-
-  if(!matched) {
-    KeyChordState = 0;
-    XUngrabKeyboard(dpy, CurrentTime);
-  }
-}
-
-void setup_ewmh(Display *dpy) {
-  Window root = DefaultRootWindow(dpy);
-
-  net_wm_name = XInternAtom(dpy, "_NET_WM_NAME", False);
-  net_supporting_wm_check = XInternAtom(dpy, "_NET_SUPPORTING_WM_CHECK", False);
-  net_current_desktop = XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False);
-  net_number_of_desktops = XInternAtom(dpy, "_NET_NUMBER_OF_DESKTOPS", False);
-  net_active_window = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
-
-  XChangeProperty(
-      dpy, 
-      root, 
-      net_wm_name, 
-      XInternAtom(dpy, "UTF8_STRING", False), 
-      8, 
-      PropModeReplace, 
-      (unsigned char *) "PlaceHolderWM", 
-      10
-      );
-
-  XChangeProperty(
-      dpy, 
-      root, 
-      net_supporting_wm_check, 
-      XA_WINDOW, 
-      32, 
-      PropModeReplace, 
-      (unsigned char *) &root, 
-      1
-      );
-
-  unsigned long num_ws = MAX_WORKSPACES;
-  XChangeProperty(
-      dpy, 
-      root, 
-      net_number_of_desktops, 
-      XA_CARDINAL, 
-      32, 
-      PropModeReplace, 
-      (unsigned char *) &num_ws, 
-      1
-      );
-}
-/*
-static const Keybinding keybindings[] = {
-  { MOD,               XK_Return,     terminal_kitty,    {.v = NULL} },
-  { MOD,               XK_a,          activate_chord,    {.v = NULL} },
-  { MOD,               XK_q,          close_window,      {.v = NULL} },
-  { MOD|SHIFT,         XK_q,          kill_client,       {.v = NULL} },
-  { MOD|SHIFT,         XK_e,          quit,              {.v = NULL} },
-
-  { MOD,               XK_h,          focus,             {.i = 0} }, // Left/Master
-  { MOD,               XK_l,          focus,             {.i = 1} }, // Right/Stack
-  { MOD,               XK_j,          focus,             {.i = 2} }, // Up
-  { MOD,               XK_k,          focus,             {.i = 3} }, // Down
-
-  { MOD,               XK_1,          move_workspace,    {.i = 0} },
-  { MOD,               XK_2,          move_workspace,    {.i = 1} },
-  { MOD,               XK_3,          move_workspace,    {.i = 2} },
-  { MOD,               XK_4,          move_workspace,    {.i = 3} },
-  { MOD,               XK_5,          move_workspace,    {.i = 4} },
-  { MOD,               XK_6,          move_workspace,    {.i = 5} },
-  { MOD,               XK_7,          move_workspace,    {.i = 6} },
-  { MOD,               XK_8,          move_workspace,    {.i = 7} },
-  { MOD,               XK_9,          move_workspace,    {.i = 8} },
-};
-*/
-
-/* Chords (Quick actions after MOD+A) */
-static const Chord chords[] = {
-  { XK_1, move_workspace, {.i = 0}    },
-};
+/* ==================== Main ==================== */
 
 int main()
 {
-  // Getting display the window attirbues and the events
+  // Get Monitor and Events
   Display *dpy;
-  XWindowAttributes attr;
   XEvent event;
 
-  if(!(dpy = XOpenDisplay(NULL))) return 1;
+  // Open Display
+  if(!(dpy = XOpenDisplay(0x0))) return 1;
 
-  setup_ewmh(dpy);
+  // Init Window Manager
   init_wm();
+  setup_numlockmask(dpy);
+  set_supported_atoms(dpy);
+  set_number_of_desktops(dpy);
   update_current_desktop(dpy);
-  auto_start_cmds();
+  run_startup(dpy);
 
-  printf("numlockmask = 0x%x\n", numlockmask);
 
-  Keybinding keybindings[] = {
-    { Mod1Mask, XK_Return, terminal_kitty, {.v = NULL} },
-    { Mod1Mask, XK_l, focus, {.i = 0}},
-    { Mod1Mask, XK_h, focus, {.i = 1}},
-    { Mod1Mask, XK_j, focus, {.i = 2}},
-    { Mod1Mask, XK_k, focus, {.i = 3}}
+  // Keybind Declarations
+  unsigned int locks[] = {
+    0,
+    LockMask,
+    numlockmask,
+    LockMask | numlockmask
   };
-  const Chord chords[] = {
-    { XK_1, move_workspace, {.i = 0}    },
-    { XK_2, move_workspace, {.i = 1}    },
-    { XK_3, move_workspace, {.i = 2}    },
-  };
-
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
 
   int n_chords = sizeof(chords) / sizeof(chords[0]);
+  int n_keys = sizeof(keybindings) / sizeof(keybindings[0]);
+  int n_locks = sizeof(locks) / sizeof(unsigned int);
 
-  int n_keys = sizeof(keybindings) / sizeof(Keybinding);
-
-  unsigned int locks[] = {0, LockMask, Mod2Mask, LockMask | Mod2Mask};
-  int n_locks = sizeof(locks)/sizeof(unsigned int);
-
-  for (int i = 0; i < n_keys; i++) {
-    for (int j = 0; j < n_locks; j++) {
-      XGrabKey(dpy,
-          XKeysymToKeycode(dpy, keybindings[i].keysym),
-          keybindings[i].mod | locks[j],
-          DefaultRootWindow(dpy),
-          True, GrabModeAsync, GrabModeAsync);
+  // Loop to have X11 pass all the keys we want to us
+  for (int i = 0; i < n_keys; i++)
+  {
+    for(int j = 0; j < n_locks; j++) 
+    {
+      XGrabKey(
+          dpy, 
+          XKeysymToKeycode(dpy, keybindings[i].key), 
+          keybindings[i].mod | locks[j], 
+          DefaultRootWindow(dpy), 
+          True, 
+          GrabModeAsync, 
+          GrabModeAsync
+          );
     }
   }
 
-  XSelectInput(dpy, DefaultRootWindow(dpy), SubstructureNotifyMask | SubstructureRedirectMask);
+  // Get Input From X11
+  XSelectInput(
+      dpy, 
+      DefaultRootWindow(dpy), 
+      SubstructureNotifyMask | SubstructureRedirectMask 
+      );
 
-  signal(SIGCHLD, cleanup_zombies);
 
-  // Main loop
-  while(running) {
+  while(WM.running) 
+  {
     XFlush(dpy);
     XNextEvent(dpy, &event);
-    update_borders(dpy);
-    Workspace *ws = &WM.workspaces[WM.current_workspace];
 
-    switch (event.type) {
+    switch(event.type)
+    {
+      // Handle KeyPresses
       case KeyPress:
-        KeySym key = XLookupKeysym(&event.xkey, 0);
-        unsigned int mods = event.xkey.state;
-        unsigned int cleanmods = mods & (ShiftMask | ControlMask | Mod1Mask);
+        {
+          // Definitions
+          KeySym key = XLookupKeysym(&event.xkey, 0);
+          unsigned int mods = event.xkey.state;
+          unsigned int cleanmods = CLEANMASK(mods);
 
-        if(KeyChordState == 1) {
-          handle_chord(dpy, chords, n_chords, key);
-          tile(dpy);
-        }
-
-        for(int i = 0; i < n_keys; i++) {
-          if (keybindings[i].keysym == key && cleanmods == keybindings[i].mod) {
-            keybindings[i].func(dpy, &keybindings[i].arg);
+          // Means We Are In a Key Chord
+          if(WM.key_state == 1) 
+          {
+            handle_chord(dpy, chords, n_chords, key);
+            tile(dpy);
+            update_borders(dpy);
             break;
           }
-        }
 
-        tile(dpy);
-        break;
-      case MapRequest:
-        Window w = event.xmaprequest.window;
-        Atom type = get_window_type(dpy, w); 
-        Atom dock = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DOCK", False);
+          // Call regular binds
+          for(int i = 0; i < n_keys; i++)
+          {
+            if (keybindings[i].key == key && CLEANMASK(keybindings[i].mod) == cleanmods)
+            {
+              keybindings[i].func(dpy, &keybindings[i].arg);
+              break;
+            }
+          }
 
-        if (type == dock) {
-          top_bar = w;
-          update_struts(dpy, w);
-          XMapWindow(dpy, w);
+          // Tile to be safe
           tile(dpy);
+          update_borders(dpy);
           break;
         }
 
-        ws -> clients = realloc(ws -> clients, sizeof(Client) * (ws -> n_clients + 1));
-        ws -> focused = &ws -> clients[ws -> n_clients];
-        ws -> focused_idx = ws -> n_clients;
-        ws -> clients[ws -> n_clients++].window = event.xmaprequest.window;
-        tile(dpy);
-        XMapWindow(dpy, event.xmaprequest.window);
-        XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
-        XFlush(dpy);
-        break;
-      case DestroyNotify:
-        if (event.xdestroywindow.window == top_bar) {
-          top_bar = None;
-          top_margin = 0;
-          tile(dpy);
-        }
-        for(int i = 0; i < ws -> n_clients; i++) {
-          if (ws -> clients[i].window == event.xdestroywindow.window) {
-            for (int j = i; j < ws -> n_clients - 1; j++) ws -> clients[j] = ws -> clients[j+1];
-            ws -> n_clients--;
-            ws -> focused = (ws -> n_clients > 0) ? &ws -> clients[ws -> n_clients - 1] : NULL;
-            ws -> focused_idx = ws -> n_clients - 1;
+
+        // Called when a window is summoned
+      case MapRequest:
+        {
+
+          Workspace *ws = &WM.workspaces[WM.current_workspace];
+
+
+          // Make space for Client
+          Client *client = malloc(sizeof(Client));
+
+          // If malloc fails break
+          if(!client)
+            break;
+
+          ws -> n_clients++;
+
+
+          client -> window = event.xmaprequest.window;
+          client -> next_client = NULL;
+          client -> x = 0;
+          client -> y = 0;
+          client -> width = 0;
+          client -> height = 0;
+          client -> is_scratchpad = 0;
+
+
+
+          Client *current_client = ws -> master_client;
+
+          if(current_client == NULL)
+          {
+            ws -> master_client = client;
+            if(is_scratchpad(dpy, client))
+            {
+              client -> is_scratchpad = 1;
+              ws -> n_scratchpads++;
+            }
+            XMapWindow(dpy, client -> window);
+            XSetInputFocus(dpy, client -> window, RevertToPointerRoot, CurrentTime);
+            ws -> focused = client;
+            tile(dpy);
             break;
           }
+          else
+          {
+            // Iterate Through Clients
+            while(current_client -> next_client != NULL)
+            {
+              current_client = current_client -> next_client;
+            }
+
+            // When the Last Client is Found Set its next_client Equal to The New Client
+            current_client -> next_client = client;
+            if(is_scratchpad(dpy, client))
+            {
+              client -> is_scratchpad = 1;
+              ws -> n_scratchpads++;
+            }
+            XMapWindow(dpy, client -> window);
+            XSetInputFocus(dpy, client -> window, RevertToPointerRoot, CurrentTime);
+            ws -> focused = client;
+            tile(dpy);
+            update_borders(dpy);
+          }
+
+          if(is_scratchpad(dpy, client))
+          {
+            client -> is_scratchpad = 1;
+            ws -> n_scratchpads++;
+          }
+
+          break;
         }
-        tile(dpy);
-        XFlush(dpy);
-        break;
-      case ConfigureRequest: 
-        XConfigureRequestEvent *ev = &event.xconfigurerequest;
+
+
+        // When a window requests a size
+      case ConfigureRequest:
+
+        // Get the event so we have access to wanted size
+        XConfigureRequestEvent *configure_event = &event.xconfigurerequest;
         XWindowChanges wc;
-        wc.x = ev->x;
-        wc.y = ev->y;
-        wc.width = ev->width;
-        wc.height = ev->height;
-        wc.border_width = ev->border_width;
-        wc.sibling = ev->above;
-        wc.stack_mode = ev->detail;
-        // Grant the window's request immediately so it doesn't hang
+
+        // We give it the wanted dimensions to increase speed and so it does not complain
+        wc.x = configure_event -> x;
+        wc.y = configure_event -> y;
+        wc.width = configure_event -> width;
+        wc.height = configure_event -> height;
+        wc.border_width = configure_event -> border_width;
+        wc.sibling = configure_event -> above;
+        wc.stack_mode = configure_event -> detail;
+
         tile(dpy);
-        XConfigureWindow(dpy, ev->window, ev->value_mask, &wc);  
+        update_borders(dpy);
+        XConfigureWindow(
+            dpy, 
+            configure_event -> window, 
+            configure_event -> value_mask,
+            &wc
+            );
+        // Just to make sure it is the dimensions we want it to be
         tile(dpy);
         break;
-      case PropertyNotify:
-        if (event.xproperty.window == top_bar && 
-            event.xproperty.atom == XInternAtom(dpy, "_NET_WM_STRUT_PARTIAL", False)) {
-          update_struts(dpy, top_bar);
+
+        // When a window closes
+      case DestroyNotify:
+        {
+          // Definitions
+          Workspace *ws = &WM.workspaces[WM.current_workspace];
+          Client *client = ws -> master_client;
+          Client *prev_client = NULL;
+
+          // Loop Through and adjust pointers
+          while(client)
+          {
+            if (client -> window == event.xdestroywindow.window)
+            {
+              if(prev_client)
+                prev_client -> next_client = client -> next_client;
+              else
+                ws -> master_client = client -> next_client;
+
+              if(ws -> focused == client)
+              {
+                if(client -> is_scratchpad == 0)
+                {
+                  if(client -> next_client)
+                    ws -> focused = client -> next_client;
+                  else
+                    ws -> focused = prev_client;
+                }
+                else
+                {
+                  ws -> focused = ws -> master_client;
+                }
+              }
+              if(client -> is_scratchpad)
+                ws -> n_scratchpads--;
+
+              free(client);
+              ws -> n_clients--;
+
+              break;
+            }
+            prev_client = client;
+            client = client -> next_client;
+          }
+          if(ws -> focused)
+            XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+          else
+            XSetInputFocus(dpy, DefaultRootWindow(dpy), RevertToPointerRoot, CurrentTime);
+
           tile(dpy);
+          update_borders(dpy);
+          break;
         }
-        break;
+
     }
   }
-}
 
+}
 
