@@ -968,26 +968,6 @@ void run_startup(Display *dpy)
 }
 
 
-/* ==================== Place Holders ==================== */
-
-void kitty(Display *dpy, const Arg *arg) 
-{
-  pid_t pid = fork();
-  if (pid == 0) 
-  {
-    setsid();
-    setenv("WLR_BACKENDS", "x11", 1); 
-    setenv("QT_QPA_PLATFORM", "xcb", 1);
-    setenv("GDK_BACKEND", "x11", 1);
-
-    execlp("env", "env", "-u", "WAYLAND_DISPLAY", "kitty", NULL);
-
-    perror("execlp");
-    exit(1);
-  }
-}
-
-
 /* ==================== Main ==================== */
 
 int main()
