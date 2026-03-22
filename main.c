@@ -227,7 +227,7 @@ void update_bar_height(Display *dpy)
 
 void update_current_desktop(Display *dpy)
 {
-  Atom net_current = XInternAtom(dpy, "_NET_CURRENT_DESKTOPS", False);
+  Atom net_current = XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False);
 
   unsigned long current = WM.current_workspace;
 
@@ -270,7 +270,6 @@ void set_supported_atoms(Display *dpy)
   Atom atoms[] = {
     XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False),
     XInternAtom(dpy, "_NET_NUMBER_OF_DESKTOPS", False),
-    XInternAtom(dpy, "_NET_SUPPORTED", False)
   };
 
   XChangeProperty(
@@ -285,6 +284,71 @@ void set_supported_atoms(Display *dpy)
       );
 }
 
+int is_dock(Display *dpy, Window w)
+{
+  Atom type_atom = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
+  Atom dock_atom = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DOCK", False);
+
+  Atom actual_type;
+  int format;
+  unsigned long nitems, bytes_after;
+  unsigned char *data = NULL;
+
+  if (XGetWindowProperty(
+        dpy, w, type_atom,
+        0, 32, False, XA_ATOM,
+        &actual_type, &format,
+        &nitems, &bytes_after,
+        &data) == Success && data)
+  {
+    Atom *atoms = (Atom *)data;
+
+    for (unsigned long i = 0; i < nitems; i++)
+    {
+      if (atoms[i] == dock_atom)
+      {
+        XFree(data);
+        return 1;
+      }
+    }
+
+    XFree(data);
+  }
+
+  return 0;
+}
+
+void set_desktop_names(Display *dpy)
+{
+  Atom net_names = XInternAtom(dpy, "_NET_DESKTOP_NAMES", False);
+  Atom utf8 = XInternAtom(dpy, "UTF8_STRING", False);
+
+  const char *names[MAX_WORKSPACES] = {
+    "1","2","3","4","5","6","7","8","9"
+  };
+
+  // Build null-separated string list
+  char buffer[256] = {0};
+  int offset = 0;
+
+  for (int i = 0; i < MAX_WORKSPACES; i++)
+  {
+    int len = strlen(names[i]);
+    memcpy(buffer + offset, names[i], len);
+    offset += len + 1; // include null terminator
+  }
+
+  XChangeProperty(
+      dpy,
+      DefaultRootWindow(dpy),
+      net_names,
+      utf8,
+      8,
+      PropModeReplace,
+      (unsigned char *)buffer,
+      offset
+  );
+}
 
 void init_wm()
 {
@@ -984,6 +1048,7 @@ int main()
   setup_numlockmask(dpy);
   set_supported_atoms(dpy);
   set_number_of_desktops(dpy);
+  set_desktop_names(dpy);
   update_current_desktop(dpy);
   run_startup(dpy);
 
@@ -1072,6 +1137,12 @@ int main()
 
           Workspace *ws = &WM.workspaces[WM.current_workspace];
 
+          if(is_dock(dpy, event.xmaprequest.window))
+          {
+            XMapWindow(dpy, event.xmaprequest.window);
+            break;
+          }
+
 
           // Make space for Client
           Client *client = malloc(sizeof(Client));
@@ -1090,7 +1161,6 @@ int main()
           client -> width = 0;
           client -> height = 0;
           client -> is_scratchpad = 0;
-
 
 
           Client *current_client = ws -> master_client;
