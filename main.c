@@ -29,6 +29,7 @@ typedef struct Client
   Window window;
   int x, y, width, height;
   int is_scratchpad;
+  int is_visible;
   // Linked list
   struct Client *next_client;
 } Client;
@@ -110,7 +111,7 @@ void focus_workspace(Display *dpy, const Arg *arg);
 
 void move_window_workspace(Display *dpy, const Arg *arg);
 
-void spawn_scratchpad(Display *dpy, const Arg *arg);
+void toggle_scratchpad(Display *dpy, const Arg *arg);
 
 
 /* ==================== Global Variable Definitions ==================== */
@@ -144,6 +145,23 @@ void setup_numlockmask(Display *dpy) {
     }
   }
   XFreeModifiermap(modmap);
+}
+
+void set_focus(Display *dpy, Workspace *ws, Client *client)
+{
+  if (!client) return;
+
+  if (ws -> focused && ws -> focused != client)
+    ws -> last_focused = ws -> focused;
+
+  ws -> focused = client;
+
+  XSetInputFocus(
+      dpy,
+      client->window,
+      RevertToPointerRoot,
+      CurrentTime
+      );
 }
 
 unsigned long get_color(Display *dpy, const char *color_name) {
@@ -347,7 +365,7 @@ void set_desktop_names(Display *dpy)
       PropModeReplace,
       (unsigned char *)buffer,
       offset
-  );
+      );
 }
 
 void init_wm()
@@ -357,6 +375,7 @@ void init_wm()
     WM.workspaces[i].master_client = NULL;
     // -1 means no windows
     WM.workspaces[i].focused = NULL;
+    WM.workspaces[i].last_focused = NULL;
     WM.workspaces[i].n_clients = 0;
     WM.workspaces[i].id = i;
   }
@@ -406,17 +425,47 @@ int is_scratchpad(Display *dpy, Client *client)
   return result;
 }
 
-void spawn_scratchpad(Display *dpy, const Arg *arg)
+int is_visible(Display *dpy, Window w)
 {
-  if(!arg) return;
+  XWindowAttributes attr;
+  if(!XGetWindowAttributes(dpy, w, &attr))
+    return 0;
 
-  if(arg -> i < 0 || arg -> i >= total_scratchpads)
-    return;
-
-  Arg spawn_arg = {.c = scratchpads[arg -> i].cmd };
-  spawn(dpy, &spawn_arg);
-  update_borders(dpy);
+  return (attr.map_state == IsViewable);
 }
+
+Client *find_scratchpad(Display *dpy, int index)
+{
+  if(index < 0 || index >= total_scratchpads)
+    return NULL;
+
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  Client *client = ws->master_client;
+
+  while(client)
+  {
+    XClassHint class_hint = {0};
+
+    if(XGetClassHint(dpy, client->window, &class_hint))
+    {
+      if(class_hint.res_class &&
+          strcmp(class_hint.res_class, scratchpads[index].class) == 0)
+      {
+        if(class_hint.res_name) XFree(class_hint.res_name);
+        if(class_hint.res_class) XFree(class_hint.res_class);
+        return client;
+      }
+
+      if(class_hint.res_name) XFree(class_hint.res_name);
+      if(class_hint.res_class) XFree(class_hint.res_class);
+    }
+
+    client = client->next_client;
+  }
+
+  return NULL;
+}
+
 
 
 /* Windows */
@@ -451,6 +500,12 @@ void tile(Display *dpy)
   int i = 0;
   while(client) 
   {
+
+    if(client -> is_scratchpad && !client -> is_visible) 
+    {
+      client = client -> next_client;
+      continue;
+    }
 
     switch(client -> is_scratchpad)
     {
@@ -597,16 +652,14 @@ void focus(Display *dpy, const Arg *arg)
           {
             if(i > 0)
             {
-              ws -> last_focused = ws -> focused;
               ws -> focused = ws -> master_client;
-              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              set_focus(dpy, ws, ws -> focused);
               break;
             }
             else 
             {
-              ws -> last_focused = ws -> focused;
               ws -> focused = ws -> master_client -> next_client;
-              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              set_focus(dpy, ws, ws -> focused);
               break;
             }
           }
@@ -627,21 +680,18 @@ void focus(Display *dpy, const Arg *arg)
               {
                 Client *tmp = ws -> focused;
                 ws -> focused = ws -> last_focused;
-                ws -> last_focused = tmp;
               }
               else
               {
-                ws -> last_focused = ws -> focused;
                 ws -> focused = ws -> master_client -> next_client;
               }
-              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              set_focus(dpy, ws, ws -> focused);
               break;
             }
             else
             {
-              ws -> last_focused = ws -> focused;
               ws -> focused = ws -> master_client;
-              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              set_focus(dpy, ws, ws -> focused);
               break;
             }
           }
@@ -659,24 +709,21 @@ void focus(Display *dpy, const Arg *arg)
             if(i == 0)
             {
               Client *last_client = find_last_client(ws);
-              ws -> last_focused = ws -> focused;
               ws -> focused = last_client;
-              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              set_focus(dpy, ws, ws -> focused);
               break;
             }
             else if (i == 1)
             {
-              ws -> last_focused = ws -> focused;
               ws -> focused = ws -> master_client;
-              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              set_focus(dpy, ws, ws -> focused);
               break;
             } 
             else
             {
               Client *prev_client = find_prev_client(client);
-              ws -> last_focused = ws -> focused;
               ws -> focused = prev_client;
-              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              set_focus(dpy, ws, ws -> focused);
               break;
             }
           }
@@ -693,16 +740,14 @@ void focus(Display *dpy, const Arg *arg)
           {
             if(client -> next_client == NULL)
             {
-              ws -> last_focused = ws -> focused;
               ws -> focused = ws -> master_client;
-              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              set_focus(dpy, ws, ws -> focused);
               break;
             }
             else
             {
-              ws -> last_focused = ws -> focused;
               ws -> focused = ws -> focused -> next_client;
-              XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+              set_focus(dpy, ws, ws -> focused);
               break;
             }
           }
@@ -729,6 +774,9 @@ void focus_workspace(Display *dpy, const Arg *arg)
   while(client)
   {
     XUnmapWindow(dpy, client -> window);
+
+    if(client -> is_scratchpad)
+      client -> is_visible = 0;
     client = client -> next_client;
   }
 
@@ -742,12 +790,13 @@ void focus_workspace(Display *dpy, const Arg *arg)
 
   while(client)
   {
-    XMapWindow(dpy, client -> window);
+    if(!client->is_scratchpad || client -> is_visible)
+      XMapWindow(dpy, client -> window);
     client = client -> next_client;
   }
 
   if(ws -> focused)
-    XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+    set_focus(dpy, ws, ws -> focused);
   else
     XSetInputFocus(dpy, DefaultRootWindow(dpy), RevertToPointerRoot, CurrentTime);
 
@@ -887,7 +936,7 @@ void move_window(Display *dpy, const Arg *arg)
 
         ws -> focused = ws -> master_client;
 
-        XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
+        set_focus(dpy, ws, ws -> focused);
         tile(dpy);
         update_borders(dpy);
         break;
@@ -898,7 +947,7 @@ void move_window(Display *dpy, const Arg *arg)
         if(client != ws -> master_client) break;
         swap_next_client(ws -> master_client);
         ws -> focused = ws -> master_client -> next_client;
-        XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
+        set_focus(dpy, ws, ws -> focused);
         tile(dpy);
         update_borders(dpy);
         break;
@@ -912,7 +961,7 @@ void move_window(Display *dpy, const Arg *arg)
         if(client == ws -> master_client)
         {
           ws -> focused = ws -> master_client;
-          XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
+          set_focus(dpy, ws, ws -> focused);
         }
         else
         {
@@ -921,7 +970,7 @@ void move_window(Display *dpy, const Arg *arg)
             curr_client = curr_client -> next_client;
           }
           ws -> focused = curr_client -> next_client;
-          XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
+          set_focus(dpy, ws, ws -> focused);
         }
         tile(dpy);
         update_borders(dpy);
@@ -933,7 +982,7 @@ void move_window(Display *dpy, const Arg *arg)
 
         swap_next_client(client);
         ws -> focused = client;
-        XSetInputFocus(dpy, ws -> focused -> window, RevertToParent, CurrentTime);
+        set_focus(dpy, ws, ws -> focused);
         tile(dpy);
         update_borders(dpy);
         break;
@@ -974,25 +1023,76 @@ void close_window(Display *dpy, const Arg *arg)
 
 /* Keybinds */
 /*
-void handle_chord(Display *dpy, const Chord chords[], int n_chords, KeySym key) {
+   void handle_chord(Display *dpy, const Chord chords[], int n_chords, KeySym key) {
 
-  int matched = 0;
+   int matched = 0;
 
-  for(int i = 0; i < n_chords; i++) {
-    if(chords[i].key == key) {
-      chords[i].func(dpy, &chords[i].arg);
+   for(int i = 0; i < n_chords; i++) {
+   if(chords[i].key == key) {
+   chords[i].func(dpy, &chords[i].arg);
 
-      matched = 1;
-      break;
+   matched = 1;
+   break;
+   }
+   }
+
+   if(!matched) {
+   WM.key_state = 0;
+   XUngrabKeyboard(dpy, CurrentTime);
+   }
+   }
+   */
+
+void toggle_scratchpad(Display *dpy, const Arg *arg) 
+{
+  if(!arg) return;
+
+  if(arg -> i < 0 || arg -> i >= total_scratchpads)
+    return;
+
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+
+  Client *client = find_scratchpad(dpy, arg -> i);
+
+  if(client)
+  {
+    if(is_visible(dpy, client -> window))
+    {
+      XUnmapWindow(dpy, client -> window);
+      client -> is_visible = 0;
+
+
+      if (ws->focused == client)
+      {
+        if (ws->last_focused)
+          ws->focused = ws->last_focused;
+        else if (ws->master_client)
+          ws->focused = ws->master_client;
+        else
+          ws->focused = NULL;
+      }
+
+      if (ws->focused)
+        set_focus(dpy, ws, ws->focused);
+      else
+        XSetInputFocus(dpy, DefaultRootWindow(dpy), RevertToPointerRoot, CurrentTime);
+    }
+    else
+    {
+      XMapRaised(dpy, client -> window);
+      client -> is_visible = 1;
+      ws -> focused = client;
+      set_focus(dpy, ws, ws -> focused);
     }
   }
-
-  if(!matched) {
-    WM.key_state = 0;
-    XUngrabKeyboard(dpy, CurrentTime);
+  else
+  {
+    Arg spawn_arg = {.c = scratchpads[arg -> i].cmd};
+    spawn(dpy, &spawn_arg);
   }
+  tile(dpy);
+  update_borders(dpy);
 }
-*/
 
 void handle_chord(Display *dpy, const Chord chords[], int n_chords, KeySym key) {
 
@@ -1181,6 +1281,9 @@ int main()
           client -> width = 0;
           client -> height = 0;
           client -> is_scratchpad = 0;
+          client -> is_visible = 1;
+
+          Client *prev_client = find_prev_client(client);
 
 
           Client *current_client = ws -> master_client;
@@ -1188,14 +1291,9 @@ int main()
           if(current_client == NULL)
           {
             ws -> master_client = client;
-            if(is_scratchpad(dpy, client))
-            {
-              client -> is_scratchpad = 1;
-              ws -> n_scratchpads++;
-            }
             XMapWindow(dpy, client -> window);
-            XSetInputFocus(dpy, client -> window, RevertToPointerRoot, CurrentTime);
             ws -> focused = client;
+            set_focus(dpy, ws, ws -> focused);
             tile(dpy);
             break;
           }
@@ -1209,14 +1307,9 @@ int main()
 
             // When the Last Client is Found Set its next_client Equal to The New Client
             current_client -> next_client = client;
-            if(is_scratchpad(dpy, client))
-            {
-              client -> is_scratchpad = 1;
-              ws -> n_scratchpads++;
-            }
             XMapWindow(dpy, client -> window);
-            XSetInputFocus(dpy, client -> window, RevertToPointerRoot, CurrentTime);
             ws -> focused = client;
+            set_focus(dpy, ws, ws -> focused);
             tile(dpy);
             update_borders(dpy);
           }
@@ -1282,13 +1375,23 @@ int main()
                 if(client -> is_scratchpad == 0)
                 {
                   if(client -> next_client)
+                  {
                     ws -> focused = client -> next_client;
+                  }
                   else
+                  {
                     ws -> focused = prev_client;
+                  }
                 }
                 else
                 {
-                  ws -> focused = ws -> master_client;
+                  if(ws -> last_focused)
+                  {
+                    ws -> focused = ws -> last_focused;
+                  } else if(ws -> master_client)
+                    ws -> focused = ws -> master_client;
+                  else
+                    ws -> focused = NULL;
                 }
               }
               if(client -> is_scratchpad)
@@ -1303,7 +1406,7 @@ int main()
             client = client -> next_client;
           }
           if(ws -> focused)
-            XSetInputFocus(dpy, ws -> focused -> window, RevertToPointerRoot, CurrentTime);
+            set_focus(dpy, ws, ws -> focused);
           else
             XSetInputFocus(dpy, DefaultRootWindow(dpy), RevertToPointerRoot, CurrentTime);
 

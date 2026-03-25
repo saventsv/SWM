@@ -63,6 +63,6 @@ static const Keybinding keybindings[] = {
 };
 
 static const Chord chords[] = {
-  { XK_t, spawn_scratchpad, {.i = 0} },
+  { XK_t, toggle_scratchpad, {.i = 0} },
 };
 
