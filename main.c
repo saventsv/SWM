@@ -973,6 +973,7 @@ void close_window(Display *dpy, const Arg *arg)
 
 
 /* Keybinds */
+/*
 void handle_chord(Display *dpy, const Chord chords[], int n_chords, KeySym key) {
 
   int matched = 0;
@@ -990,6 +991,25 @@ void handle_chord(Display *dpy, const Chord chords[], int n_chords, KeySym key) 
     WM.key_state = 0;
     XUngrabKeyboard(dpy, CurrentTime);
   }
+}
+*/
+
+void handle_chord(Display *dpy, const Chord chords[], int n_chords, KeySym key) {
+
+  for(int i = 0; i < n_chords; i++) {
+    if(chords[i].key == key) {
+      chords[i].func(dpy, &chords[i].arg);
+
+      // EXIT chord mode after success
+      WM.key_state = 0;
+      XUngrabKeyboard(dpy, CurrentTime);
+      return;
+    }
+  }
+
+  // If no match, also exit
+  WM.key_state = 0;
+  XUngrabKeyboard(dpy, CurrentTime);
 }
 
 void activate_chord(Display *dpy, const Arg *arg) {
