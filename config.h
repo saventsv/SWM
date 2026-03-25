@@ -1,6 +1,6 @@
 /* config.h */
 #include <X11/Xlib.h>
-#pragma once
+
 /* Appearance */
 
 static const char *color_active = "#5e81ac";
@@ -31,17 +31,27 @@ static const Scratchpad scratchpads[] = {
 
 static const Keybinding keybindings[] = {
   /* modifier          key            function                argument */
+
+  /* Processes */
   { MOD,               XK_Return,     spawn,                  { .c = "kitty"}  },
   { MOD,               XK_space,      activate_chord,         { .v = NULL }    },
-  { MOD,               XK_q,          close_window,           { .v = NULL }    },
+  { MOD | SHIFT,       XK_e,          quit,                   { .v = NULL }    },
+
+  /* Windows */
+
+  /* Focusing */
   { MOD,               XK_h,          focus,                  { .i = 0 }       },
   { MOD,               XK_l,          focus,                  { .i = 1 }       },
   { MOD,               XK_k,          focus,                  { .i = 2 }       },
   { MOD,               XK_j,          focus,                  { .i = 3 }       },
+
+  /* Moving Windows */
   { MOD | SHIFT,       XK_h,          move_window,            { .i = 0 }       },
   { MOD | SHIFT,       XK_l,          move_window,            { .i = 1 }       },
   { MOD | SHIFT,       XK_k,          move_window,            { .i = 2 }       },
   { MOD | SHIFT,       XK_j,          move_window,            { .i = 3 }       },
+
+  /* Focusing Workspace */
   { MOD,               XK_1,          focus_workspace,        { .i = 0 }       },
   { MOD,               XK_2,          focus_workspace,        { .i = 1 }       },
   { MOD,               XK_3,          focus_workspace,        { .i = 2 }       },
@@ -51,6 +61,8 @@ static const Keybinding keybindings[] = {
   { MOD,               XK_7,          focus_workspace,        { .i = 6 }       },
   { MOD,               XK_8,          focus_workspace,        { .i = 7 }       },
   { MOD,               XK_9,          focus_workspace,        { .i = 8 }       },
+
+  /* Moving Windows Between Workspaces */
   { MOD | SHIFT,       XK_1,          move_window_workspace,  { .i = 0 }       },
   { MOD | SHIFT,       XK_2,          move_window_workspace,  { .i = 1 }       },
   { MOD | SHIFT,       XK_3,          move_window_workspace,  { .i = 2 }       },
@@ -60,6 +72,8 @@ static const Keybinding keybindings[] = {
   { MOD | SHIFT,       XK_7,          move_window_workspace,  { .i = 6 }       },
   { MOD | SHIFT,       XK_8,          move_window_workspace,  { .i = 7 }       },
   { MOD | SHIFT,       XK_9,          move_window_workspace,  { .i = 8 }       },
+
+  { MOD,               XK_q,          close_window,           { .v = NULL }    },
 };
 
 static const Chord chords[] = {

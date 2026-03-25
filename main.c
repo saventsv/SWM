@@ -113,6 +113,7 @@ void move_window_workspace(Display *dpy, const Arg *arg);
 
 void toggle_scratchpad(Display *dpy, const Arg *arg);
 
+void quit(Display *dpy, const Arg *arg);
 
 /* ==================== Global Variable Definitions ==================== */
 
@@ -128,6 +129,11 @@ int total_scratchpads = sizeof(scratchpads) / sizeof(Scratchpad);
 int bar_height = 0;
 
 /* MISC */
+
+void quit(Display *dpy, const Arg *arg)
+{
+  WM.running = 0;
+}
 
 unsigned int numlockmask = 0;
 
