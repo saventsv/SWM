@@ -1289,8 +1289,6 @@ int main()
           client -> is_scratchpad = 0;
           client -> is_visible = 1;
 
-          Client *prev_client = find_prev_client(client);
-
 
           Client *current_client = ws -> master_client;
 
@@ -1325,6 +1323,9 @@ int main()
             client -> is_scratchpad = 1;
             ws -> n_scratchpads++;
           }
+
+          // For focus follows mouse
+          XSelectInput(dpy, client -> window, EnterWindowMask);
 
           break;
         }
@@ -1418,6 +1419,33 @@ int main()
 
           tile(dpy);
           update_borders(dpy);
+          break;
+        }
+
+      case EnterNotify:
+        {
+          XCrossingEvent *crossing_event = &event.xcrossing;
+
+          if(crossing_event -> mode != NotifyNormal || crossing_event -> detail == NotifyInferior)
+            break;
+
+          Workspace *ws = &WM.workspaces[WM.current_workspace];
+          Client *client = ws -> master_client;
+
+          while(client)
+          {
+            if(client -> window == crossing_event -> window)
+            {
+              if(ws -> focused != client)
+              {
+                ws -> focused = client;
+                set_focus(dpy, ws, client);
+                update_borders(dpy);
+              }
+              break;
+            }
+            client = client -> next_client;
+          }
           break;
         }
 
