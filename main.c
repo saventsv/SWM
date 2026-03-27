@@ -49,6 +49,8 @@ typedef struct
   int current_workspace;
   Workspace workspaces[MAX_WORKSPACES];
   int key_state;
+  // To make sure that focus follows mouse does not do any weird things
+  int is_occupied;
   int running;
 } WindowManager;
 
@@ -479,6 +481,8 @@ Client *find_scratchpad(Display *dpy, int index)
 void tile(Display *dpy)
 {
 
+  WM.is_occupied = 1;
+
   Workspace *ws = &WM.workspaces[WM.current_workspace];
   if(!ws -> master_client) return;
 
@@ -597,8 +601,8 @@ void tile(Display *dpy)
           continue;
         }
     }
-
   }
+  WM.is_occupied = 0;
 }
 
 Client *find_prev_client(Client *client)
@@ -767,6 +771,7 @@ void focus(Display *dpy, const Arg *arg)
 
 void focus_workspace(Display *dpy, const Arg *arg)
 {
+  WM.is_occupied = 1;
 
   // NULL check and check if in range for workspaces
   if (!arg || arg -> i < 0 || arg -> i >= MAX_WORKSPACES || arg -> i == WM.current_workspace)
@@ -810,6 +815,8 @@ void focus_workspace(Display *dpy, const Arg *arg)
 
   tile(dpy);
   update_borders(dpy);
+
+  WM.is_occupied = 1;
 }
 
 void move_window_workspace(Display *dpy, const Arg *arg)
@@ -1212,7 +1219,7 @@ int main()
   XSelectInput(
       dpy, 
       DefaultRootWindow(dpy), 
-      SubstructureNotifyMask | SubstructureRedirectMask 
+      SubstructureNotifyMask | SubstructureRedirectMask | PointerMotionMask
       );
 
 
@@ -1324,9 +1331,6 @@ int main()
             ws -> n_scratchpads++;
           }
 
-          // For focus follows mouse
-          XSelectInput(dpy, client -> window, EnterWindowMask);
-
           break;
         }
 
@@ -1392,19 +1396,12 @@ int main()
                 }
                 else
                 {
-                  if(ws -> last_focused)
-                  {
-                    ws -> focused = ws -> last_focused;
-                  } else if(ws -> master_client)
-                    ws -> focused = ws -> master_client;
-                  else
-                    ws -> focused = NULL;
+                  ws -> focused = ws -> master_client;
                 }
               }
               if(client -> is_scratchpad)
                 ws -> n_scratchpads--;
 
-              free(client);
               ws -> n_clients--;
 
               break;
@@ -1417,28 +1414,41 @@ int main()
           else
             XSetInputFocus(dpy, DefaultRootWindow(dpy), RevertToPointerRoot, CurrentTime);
 
+          free(client);
+
           tile(dpy);
           update_borders(dpy);
           break;
         }
 
-      case EnterNotify:
+      case MotionNotify:
         {
-          XCrossingEvent *crossing_event = &event.xcrossing;
 
-          if(crossing_event -> mode != NotifyNormal || crossing_event -> detail == NotifyInferior)
+          if(WM.is_occupied) break;
+
+          Window root, child;
+          int root_x, root_y, win_x, win_y;
+          unsigned int mask;
+
+          if(!XQueryPointer(dpy, DefaultRootWindow(dpy), 
+                &root, &child, 
+                &root_x, &root_y, 
+                &win_x, &win_y, 
+                &mask
+                ))
             break;
+
+          if(child == None) break;
 
           Workspace *ws = &WM.workspaces[WM.current_workspace];
           Client *client = ws -> master_client;
 
           while(client)
           {
-            if(client -> window == crossing_event -> window)
+            if(client -> window == child)
             {
               if(ws -> focused != client)
               {
-                ws -> focused = client;
                 set_focus(dpy, ws, client);
                 update_borders(dpy);
               }
@@ -1446,9 +1456,7 @@ int main()
             }
             client = client -> next_client;
           }
-          break;
         }
-
     }
   }
 
