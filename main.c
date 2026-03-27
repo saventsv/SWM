@@ -493,6 +493,9 @@ void tile(Display *dpy)
   int screen_width = DisplayWidth(dpy, screen);
   int screen_height = DisplayHeight(dpy, screen) - bar_height;
   int tiled = ws -> n_clients - ws -> n_scratchpads;
+
+  if(tiled <= 0) return;
+
   // MASTER_RATIO from conifig file
   int master_width = ( tiled > 1 ) ? screen_width * master_ratio: screen_width ;
   int master_height = screen_height;
@@ -1075,12 +1078,12 @@ void toggle_scratchpad(Display *dpy, const Arg *arg)
       client -> is_visible = 0;
 
 
-      if (ws->focused == client)
+      if (ws -> focused == client)
       {
-        if (ws->last_focused)
-          ws->focused = ws->last_focused;
-        else if (ws->master_client)
-          ws->focused = ws->master_client;
+        if (ws -> last_focused)
+          ws -> focused = ws -> last_focused;
+        else if (ws -> master_client)
+          ws -> focused = ws -> master_client;
         else
           ws->focused = NULL;
       }
@@ -1342,24 +1345,37 @@ int main()
         XConfigureRequestEvent *configure_event = &event.xconfigurerequest;
         XWindowChanges wc;
 
-        // We give it the wanted dimensions to increase speed and so it does not complain
-        wc.x = configure_event -> x;
-        wc.y = configure_event -> y;
-        wc.width = configure_event -> width;
-        wc.height = configure_event -> height;
-        wc.border_width = configure_event -> border_width;
-        wc.sibling = configure_event -> above;
         wc.stack_mode = configure_event -> detail;
 
-        tile(dpy);
+        Workspace *ws = &WM.workspaces[WM.current_workspace];
+        Client *client = ws -> master_client;
+        int managed = 0;
+
+        while(client)
+        {
+          if (client -> window == configure_event -> window)
+          {
+            managed = 1;
+            break;
+          }
+          client = client -> next_client;
+        }
+
+        if(!managed)
+        {
+          
+          wc.x = configure_event -> x;
+          wc.y = configure_event -> y;
+          wc.width = configure_event -> width;
+          wc.height = configure_event -> height;
+          wc.border_width = configure_event -> border_width;
+          wc.sibling = configure_event -> above;
+          wc.stack_mode = configure_event -> detail;
+          
+          XConfigureWindow(dpy, configure_event -> window, configure_event -> value_mask, &wc);
+        }
+
         update_borders(dpy);
-        XConfigureWindow(
-            dpy, 
-            configure_event -> window, 
-            configure_event -> value_mask,
-            &wc
-            );
-        // Just to make sure it is the dimensions we want it to be
         tile(dpy);
         break;
 
@@ -1385,18 +1401,20 @@ int main()
               {
                 if(client -> is_scratchpad == 0)
                 {
-                  if(client -> next_client)
+                  if(ws -> last_focused == client)
+                    ws -> focused = NULL;
+
+                  if(!ws -> master_client || ws -> master_client -> is_scratchpad || !ws -> master_client -> is_visible)
                   {
-                    ws -> focused = client -> next_client;
-                  }
-                  else
+                    ws -> focused = NULL;
+                  } else if(ws -> last_focused && !ws -> last_focused -> is_scratchpad && ws -> last_focused -> is_visible)
                   {
-                    ws -> focused = prev_client;
+                    set_focus(dpy, ws, ws -> last_focused);
                   }
                 }
                 else
                 {
-                  ws -> focused = ws -> master_client;
+                  set_focus(dpy, ws, ws -> master_client);
                 }
               }
               if(client -> is_scratchpad)
