@@ -8,7 +8,7 @@ It is aims to be simple and hackable like its inspiration dwm but have some of t
 
 ![screenshot](assets/swm.png)
 
-![screenshot](assets/scratchpads.png)
+![screenshot](assets/scratchpad.png)
 
 ## Architecture
 
