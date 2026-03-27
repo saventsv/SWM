@@ -8,6 +8,8 @@ It is aims to be simple and hackable like its inspiration dwm but have some of t
 
 ![screenshot](assets/swm.png)
 
+![screenshot](assets/scratchpads.png)
+
 ## Architecture
 
 SWM is made off of the Xlib library, for simiplicity, control, and maximum performance
