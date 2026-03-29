@@ -136,6 +136,10 @@ WindowManager WM;
 int total_scratchpads = sizeof(scratchpads) / sizeof(Scratchpad);
 int bar_height = 0;
 
+unsigned long active_px;
+unsigned long inactive_px;
+unsigned long chord_px;
+
 /* MISC */
 
 void quit(Display *dpy, const Arg *arg)
@@ -212,11 +216,15 @@ unsigned long get_color(Display *dpy, const char *color_name) {
   return color.pixel;
 }
 
-void update_borders(Display *dpy) {
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
+void cache_borders(Display *dpy)
+{
   unsigned long active_px = get_color(dpy, color_active);
   unsigned long inactive_px = get_color(dpy, color_inactive);
   unsigned long chord_px = get_color(dpy, color_chord);
+}
+
+void update_borders(Display *dpy) {
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
 
   Client *client = ws -> master_client;
 
@@ -842,8 +850,16 @@ void move_window_workspace(Display *dpy, const Arg *arg)
   // Check If Current Window is master
   if(!prev_client)
   {
-    curr_ws -> master_client = client -> next_client;
-    new_focus = client -> next_client;
+    if(!client -> is_floating || !client -> is_scratchpad)
+    {
+      curr_ws -> master_client = client -> next_client;
+      new_focus = client -> next_client;
+    }
+    else
+    {
+      curr_ws -> master_floating = client -> next_client;
+      new_focus = client -> next_client;
+    }
     set_focus(dpy, curr_ws, new_focus);
   }
   else
@@ -870,8 +886,15 @@ void move_window_workspace(Display *dpy, const Arg *arg)
   }
   else
   {
-    new_ws -> master_client = client;
-    client -> next_client = NULL;
+    if(!client -> is_floating || !client -> is_scratchpad){
+      new_ws -> master_client = client;
+      client -> next_client = NULL;
+    }
+    else
+    {
+      new_ws -> master_floating = client;
+      client -> next_client = NULL;
+    }
 
     new_focus = client;
 
@@ -1046,8 +1069,46 @@ void close_window(Display *dpy, const Arg *arg)
 
 void tile_scratchpad(Display *dpy)
 {
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
 
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  int screen = DefaultScreen(dpy);
+  int screen_width = DisplayWidth(dpy, screen);
+  int screen_height = DisplayHeight(dpy, screen);
+
+  int pad_width = screen_width * scratchpad_width;
+  int pad_height = screen_height * scratchpad_height;
+  int pad_x = (screen_width - pad_width) / 2;
+  int pad_y = (screen_height - pad_height) / 2;
+
+  // NULL check
+  if(!ws -> master_floating)
+    return;
+  Client *client = ws -> master_floating;
+
+  while(client)
+  {
+    XMoveResizeWindow(
+        dpy, 
+        client -> window, 
+        pad_x, 
+        pad_y, 
+        pad_width - (gaps * 2) - (border_width * 2), 
+        pad_height - (gaps * 2) - (border_width * 2)
+        );
+    XRaiseWindow(dpy, client -> window);
+
+    client -> x = pad_x;
+    client -> y = pad_y;
+    client -> width = pad_width;
+    client -> height = pad_height;
+
+    XSetWindowBorderWidth(dpy, client -> window, border_width);
+
+    if(client == ws -> focused_floating)
+      XSetWindowBorder(dpy, client -> window, active_px);
+    else
+      XSetWindowBorder(dpy, client -> window, inactive_px);
+  }
 
 }
 
@@ -1178,6 +1239,7 @@ int main()
   set_desktop_names(dpy);
   update_current_desktop(dpy);
   run_startup(dpy);
+  cache_borders(dpy);
 
 
   // Keybind Declarations
