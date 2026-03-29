@@ -1376,7 +1376,7 @@ int main()
 
           Client *current_client;
 
-          if(!client -> is_floating || !client -> is_scratchpad)
+          if(!client -> is_floating && !client -> is_scratchpad)
           {
             current_client = ws -> master_client;
             if(current_client == NULL)
