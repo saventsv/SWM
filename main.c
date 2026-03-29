@@ -1098,7 +1098,11 @@ void close_window(Display *dpy, const Arg *arg)
   Workspace *ws = &WM.workspaces[WM.current_workspace];
   Client *client = ws -> focused;
 
-  if(!client) return;
+  if(!client)
+    client = ws -> focused_floating;
+    
+  if(!client)
+    return;
 
   Atom WM_DELETE_WINDOW = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
   Atom WM_PROTOCOLS = XInternAtom(dpy, "WM_PROTOCOLS", False);
