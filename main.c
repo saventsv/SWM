@@ -182,7 +182,7 @@ void set_focus(Display *dpy, Workspace *ws, Client *client)
 {
   if (!client) return;
 
-  if(!client -> is_scratchpad || !client -> is_floating)
+  if(!client -> is_scratchpad && !client -> is_floating)
   {
     if(ws -> focused_floating)
       ws -> focused_floating = NULL;
@@ -196,7 +196,7 @@ void set_focus(Display *dpy, Workspace *ws, Client *client)
   }
   // ws -> last_focused = ws -> focused; 
 
-  if(!client -> is_scratchpad || !client -> is_floating)
+  if(!client -> is_scratchpad && !client -> is_floating)
     ws -> focused = client;
   else
     ws -> focused_floating = client;
@@ -218,9 +218,9 @@ unsigned long get_color(Display *dpy, const char *color_name) {
 
 void cache_borders(Display *dpy)
 {
-  unsigned long active_px = get_color(dpy, color_active);
-  unsigned long inactive_px = get_color(dpy, color_inactive);
-  unsigned long chord_px = get_color(dpy, color_chord);
+  active_px = get_color(dpy, color_active);
+  inactive_px = get_color(dpy, color_inactive);
+  chord_px = get_color(dpy, color_chord);
 }
 
 void update_borders(Display *dpy) {
@@ -525,7 +525,11 @@ void tile(Display *dpy)
   WM.is_occupied = 1;
 
   Workspace *ws = &WM.workspaces[WM.current_workspace];
-  if(!ws -> master_client) return;
+  if(!ws -> master_client) 
+  {
+    WM.is_occupied = 0;
+    return;
+  }
 
   update_bar_height(dpy);
 
@@ -545,9 +549,6 @@ void tile(Display *dpy)
 
 
   Client *client = ws -> master_client;
-
-  unsigned long active_px = get_color(dpy, color_active);
-  unsigned long inactive_px = get_color(dpy, color_inactive);
 
   int i = 0;
   while(client) 
@@ -607,7 +608,6 @@ void tile(Display *dpy)
     }
     client = client -> next_client;
     i++;
-    break;
   }
   WM.is_occupied = 0;
 }
@@ -850,7 +850,7 @@ void move_window_workspace(Display *dpy, const Arg *arg)
   // Check If Current Window is master
   if(!prev_client)
   {
-    if(!client -> is_floating || !client -> is_scratchpad)
+    if(!client -> is_floating && !client -> is_scratchpad)
     {
       curr_ws -> master_client = client -> next_client;
       new_focus = client -> next_client;
@@ -886,7 +886,7 @@ void move_window_workspace(Display *dpy, const Arg *arg)
   }
   else
   {
-    if(!client -> is_floating || !client -> is_scratchpad){
+    if(!client -> is_floating && !client -> is_scratchpad){
       new_ws -> master_client = client;
       client -> next_client = NULL;
     }
@@ -1324,6 +1324,8 @@ int main()
       case MapRequest:
         {
 
+          WM.is_occupied = 1;
+
           Workspace *ws = &WM.workspaces[WM.current_workspace];
 
           if(is_dock(dpy, event.xmaprequest.window))
@@ -1365,7 +1367,7 @@ int main()
 
           Client *current_client = ws -> master_client;
 
-          if(!client -> is_floating || !client -> is_scratchpad)
+          if(!client -> is_floating && !client -> is_scratchpad)
           {
             if(current_client == NULL)
             {
@@ -1373,7 +1375,6 @@ int main()
               XMapWindow(dpy, client -> window);
               new_focus = client;
               set_focus(dpy, ws, new_focus);
-              tile(dpy);
               break;
             }
             else
@@ -1387,8 +1388,6 @@ int main()
               XMapWindow(dpy, client -> window);
               new_focus = client;
               set_focus(dpy, ws, new_focus);
-              tile(dpy);
-              update_borders(dpy);
             }
           } 
           else 
@@ -1402,14 +1401,13 @@ int main()
               new_focus = client;
 
               set_focus(dpy, ws, new_focus);
-              if(client -> is_scratchpad) 
-                // TODO add this function and just copy paste the code from the tile function or redo
-                tile_scratchpad(dpy);
-              update_borders(dpy);
             }
           }
 
-
+          tile(dpy);
+          tile_scratchpad(dpy);
+          update_borders(dpy);
+          WM.is_occupied = 0;
           break;
         }
 
