@@ -24,9 +24,10 @@ The codebase is intentionally kept small and readable to aid in user modificatio
 
 ## Challanges
 
-- implementing scratchpads and having consistent focus mechanics
+- implementing scratchpads and having consistent focus mechanics and getting them to work
 - having consistent focus mechanics
 - allowing for user input through config.h
+- not using stale/invalid pointers by accident
 
 ## Differences from dwm
 

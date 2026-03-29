@@ -179,10 +179,10 @@ void set_focus(Display *dpy, Workspace *ws, Client *client)
     if(ws -> last_focused && ws -> last_focused -> is_scratchpad)
       ws -> last_focused = NULL;
 
-    if(!ws -> focused -> is_scratchpad)
+    if(ws -> focused && !ws -> focused -> is_scratchpad && ws -> focused != client && ws -> focused != ws -> master_client)
       ws -> last_focused = ws -> focused;
   }
-    ws -> last_focused = ws -> focused;
+    // ws -> last_focused = ws -> focused; 
 
   ws -> focused = client;
 
@@ -718,7 +718,7 @@ void focus(Display *dpy, const Arg *arg)
           {
             if(i == 0)
             {
-              if(ws -> last_focused && is_valid_client(ws, ws -> last_focused))
+              if(ws -> last_focused && is_valid_client(ws, ws -> last_focused) && ws -> last_focused != ws -> master_client)
               {
                 Client *tmp = ws -> focused;
                 if(ws -> last_focused && is_valid_client(ws, ws -> last_focused))
@@ -1135,7 +1135,7 @@ void toggle_scratchpad(Display *dpy, const Arg *arg)
       XMapRaised(dpy, client -> window);
       client -> is_visible = 1;
       new_focus = client;
-      set_focus(dpy, ws, ws -> focused);
+      set_focus(dpy, ws, new_focus);
     }
   }
   else
@@ -1494,12 +1494,24 @@ int main()
           }
           else
           {
-            if(prev_client)
-              new_focus = prev_client;
-            else if(ws -> master_client)
-              new_focus = ws -> master_client;
-            else 
-              new_focus = NULL;
+            if(!client -> is_scratchpad)
+            {
+              if(prev_client)
+                new_focus = prev_client;
+              else if(ws -> master_client)
+                new_focus = ws -> master_client;
+              else 
+                new_focus = NULL;
+            }
+            else
+            {
+              if(ws -> last_focused && ws -> last_focused != client && is_valid_client(ws, ws -> last_focused))
+                new_focus = ws -> last_focused;
+              else if(ws -> master_client && ws -> master_client != client)
+                new_focus = ws -> master_client;
+              else
+               new_focus = NULL;
+            }
           }
 
 
