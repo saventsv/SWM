@@ -658,7 +658,6 @@ void tile(Display *dpy)
     }
     client = client -> next_client;
     i++;
-    break;
   }
   WM.is_occupied = 0;
 }
@@ -1248,22 +1247,29 @@ void unlink_client(Workspace *ws, Client *client)
   }
 }
 
-void destory_client(Display *dpy, Workspace *ws, Client *client)
+Client *destroy_client(Display *dpy, Workspace *ws, Client *client)
 {
-  if(!client) return;
+  if(!client) return NULL;
+
+  Client *next_focus = NULL;
+
+  unlink_client(ws, client);
+
+  next_focus = client -> next_client ? client -> next_client : ws -> master_client;
 
   if(!client -> is_floating && !client -> is_scratchpad)
     ws -> n_clients--;
   else
     ws -> n_floating--;
 
-  unlink_client(ws, client);
 
   if(ws -> focused == client) ws -> focused = NULL;
-  if(ws -> last_focused== client) ws -> last_focused = NULL;
+  if(ws -> last_focused == client) ws -> last_focused = NULL;
   if(ws -> focused_floating == client) ws -> focused_floating = NULL;
 
   free(client);
+
+  return next_focus;
 }
 
 
@@ -1537,7 +1543,6 @@ int main()
           Workspace *ws = &WM.workspaces[WM.current_workspace];
           Client *client = ws -> master_client;
           Client *prev_client = NULL;
-          Client *new_focus = NULL;
 
           // Find Client
           while(client)
@@ -1565,18 +1570,7 @@ int main()
           if(!client)
             break;
 
-          // Decrement counts
-
-          destory_client(dpy, ws, client);
-
-          // Choose new focus
-          if(ws -> last_focused && is_valid_client(ws, ws -> last_focused))
-            new_focus = ws -> last_focused;
-          else if (ws -> master_client && is_valid_client(ws, ws -> master_client))
-            new_focus = ws -> master_client;
-          else
-            new_focus = NULL;
-
+          Client *new_focus = destroy_client(dpy, ws, client);
 
           if(new_focus)
             set_focus(dpy, ws, new_focus);
