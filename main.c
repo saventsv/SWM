@@ -190,36 +190,20 @@ int is_valid_client(Workspace *ws, Client *target_client)
 
 void set_focus(Display *dpy, Workspace *ws, Client *client)
 {
-  if (!client) return;
+  if(!client)
+    return;
 
-  if(!client -> is_scratchpad || !client -> is_floating)
+  // If is not a floating or scratchpad window
+  if(!client -> is_floating && !client -> is_scratchpad)
   {
-    if(ws -> focused &&
-        ws -> focused != client &&
-        ws -> focused != ws -> master_client &&
-        is_valid_client(ws, ws -> focused) &&
-        !ws -> focused -> is_scratchpad &&
-        !ws -> focused -> is_floating
-        )
-    {
-      ws -> last_focused = ws -> focused;
-    }
-  }
-  // ws -> last_focused = ws -> focused; 
-
-<<<<<<< HEAD
-  if(!client -> is_scratchpad && !client -> is_floating)
-  {
-=======
-  if(!client -> is_scratchpad || !client -> is_floating)
->>>>>>> parent of 8d91fd4 (fixed a logic conditional bug (hopefully))
-    ws -> focused = client;
     ws -> focused_floating = NULL;
+    ws -> last_focused = ws -> focused;
+    ws -> focused = client;
   }
   else
   {
+    ws -> focused = NULL;
     ws -> focused_floating = client;
-    ws -> focused= NULL;
   }
 
   XSetInputFocus(
@@ -239,9 +223,9 @@ unsigned long get_color(Display *dpy, const char *color_name) {
 
 void cache_borders(Display *dpy)
 {
-  unsigned long active_px = get_color(dpy, color_active);
-  unsigned long inactive_px = get_color(dpy, color_inactive);
-  unsigned long chord_px = get_color(dpy, color_chord);
+  active_px = get_color(dpy, color_active);
+  inactive_px = get_color(dpy, color_inactive);
+  chord_px = get_color(dpy, color_chord);
 }
 
 void update_borders(Display *dpy) {
@@ -540,6 +524,52 @@ Client *find_scratchpad(Display *dpy, int index)
 
 /* Windows */
 
+void tile_scratchpad(Display *dpy)
+{
+
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  int screen = DefaultScreen(dpy);
+  int screen_width = DisplayWidth(dpy, screen);
+  int screen_height = DisplayHeight(dpy, screen);
+
+  int pad_width = screen_width * scratchpad_width;
+  int pad_height = screen_height * scratchpad_height;
+  int pad_x = (screen_width - pad_width) / 2;
+  int pad_y = (screen_height - pad_height) / 2;
+
+  // NULL check
+  if(!ws -> master_floating)
+    return;
+  Client *client = ws -> master_floating;
+
+  while(client)
+  {
+    XMoveResizeWindow(
+        dpy, 
+        client -> window, 
+        pad_x, 
+        pad_y, 
+        pad_width - (gaps * 2) - (border_width * 2), 
+        pad_height - (gaps * 2) - (border_width * 2)
+        );
+    XRaiseWindow(dpy, client -> window);
+
+    client -> x = pad_x;
+    client -> y = pad_y;
+    client -> width = pad_width;
+    client -> height = pad_height;
+
+    XSetWindowBorderWidth(dpy, client -> window, border_width);
+
+    if(client == ws -> focused_floating)
+      XSetWindowBorder(dpy, client -> window, active_px);
+    else
+      XSetWindowBorder(dpy, client -> window, inactive_px);
+    client = client -> next_client;
+  }
+
+}
+
 void tile(Display *dpy)
 {
 
@@ -566,9 +596,6 @@ void tile(Display *dpy)
 
 
   Client *client = ws -> master_client;
-
-  unsigned long active_px = get_color(dpy, color_active);
-  unsigned long inactive_px = get_color(dpy, color_inactive);
 
   int i = 0;
   while(client) 
@@ -858,20 +885,25 @@ void move_window_workspace(Display *dpy, const Arg *arg)
 
   Workspace *curr_ws = &WM.workspaces[WM.current_workspace];
   Workspace *new_ws = &WM.workspaces[arg -> i];
+  Client *client;
   Client *new_focus = NULL;
 
 
   // Check if There is a Window to Move
-  if(!curr_ws -> focused) return;
+  if(!curr_ws -> focused && !curr_ws -> focused_floating) 
+    return;
 
-  Client *client =  curr_ws -> focused;
+  if(curr_ws -> focused)
+    client = curr_ws -> focused;
+  else
+    client = curr_ws -> focused_floating;
 
   Client *prev_client = find_prev_client(client);
 
   // Check If Current Window is master
   if(!prev_client)
   {
-    if(!client -> is_floating || !client -> is_scratchpad)
+    if(!client -> is_floating && !client -> is_scratchpad)
     {
       curr_ws -> master_client = client -> next_client;
       new_focus = client -> next_client;
@@ -902,6 +934,7 @@ void move_window_workspace(Display *dpy, const Arg *arg)
     new_focus = client;
     set_focus(dpy, new_ws, new_focus);
 
+    tile_scratchpad(dpy);
     tile(dpy);
     update_borders(dpy);
   }
@@ -921,6 +954,7 @@ void move_window_workspace(Display *dpy, const Arg *arg)
 
     set_focus(dpy, new_ws, new_focus);
 
+    tile_scratchpad(dpy);
     tile(dpy);
     update_borders(dpy);
   }
@@ -1088,50 +1122,6 @@ void close_window(Display *dpy, const Arg *arg)
   XFlush(dpy);
 }
 
-void tile_scratchpad(Display *dpy)
-{
-
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
-  int screen = DefaultScreen(dpy);
-  int screen_width = DisplayWidth(dpy, screen);
-  int screen_height = DisplayHeight(dpy, screen);
-
-  int pad_width = screen_width * scratchpad_width;
-  int pad_height = screen_height * scratchpad_height;
-  int pad_x = (screen_width - pad_width) / 2;
-  int pad_y = (screen_height - pad_height) / 2;
-
-  // NULL check
-  if(!ws -> master_floating)
-    return;
-  Client *client = ws -> master_floating;
-
-  while(client)
-  {
-    XMoveResizeWindow(
-        dpy, 
-        client -> window, 
-        pad_x, 
-        pad_y, 
-        pad_width - (gaps * 2) - (border_width * 2), 
-        pad_height - (gaps * 2) - (border_width * 2)
-        );
-    XRaiseWindow(dpy, client -> window);
-
-    client -> x = pad_x;
-    client -> y = pad_y;
-    client -> width = pad_width;
-    client -> height = pad_height;
-
-    XSetWindowBorderWidth(dpy, client -> window, border_width);
-
-    if(client == ws -> focused_floating)
-      XSetWindowBorder(dpy, client -> window, active_px);
-    else
-      XSetWindowBorder(dpy, client -> window, inactive_px);
-  }
-
-}
 
 void toggle_scratchpad(Display *dpy, const Arg *arg) 
 {
