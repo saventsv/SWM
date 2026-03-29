@@ -489,7 +489,7 @@ Client *find_scratchpad(Display *dpy, int index)
     return NULL;
 
   Workspace *ws = &WM.workspaces[WM.current_workspace];
-  Client *client = ws->master_client;
+  Client *client = ws -> master_floating;
 
   while(client)
   {
@@ -509,7 +509,7 @@ Client *find_scratchpad(Display *dpy, int index)
       if(class_hint.res_class) XFree(class_hint.res_class);
     }
 
-    client = client->next_client;
+    client = client -> next_client;
   }
 
   return NULL;
@@ -1365,10 +1365,11 @@ int main()
           else
             ws -> n_clients++;
 
-          Client *current_client = ws -> master_client;
+          Client *current_client;
 
           if(!client -> is_floating && !client -> is_scratchpad)
           {
+            current_client = ws -> master_client;
             if(current_client == NULL)
             {
               ws -> master_client = client;
@@ -1473,24 +1474,58 @@ int main()
           }
 
           // NULL Check
-          if(!client) break;
+          if(!client)
+          {
+            client = ws -> master_floating;
+            prev_client = NULL;
+            while(client)
+            {
+              if(client -> window == event.xdestroywindow.window)
+                break;
+              prev_client = client;
+              client = client -> next_client;
+            }
+          }
+
+          if(!client)
+            break;
 
           // Decrement counts
-          ws -> n_clients--;
+          if(!client -> is_floating && !client -> is_scratchpad)
+            ws -> n_clients--;
+          else
+            ws -> n_floating--;
 
+          int was_master;
 
-          int was_master = (client == ws -> master_client);
+          if(!client -> is_floating && !client -> is_scratchpad)
+            was_master = (client == ws -> master_client);
+          else
+            was_master = (client == ws -> master_floating);
 
           if(prev_client && !is_valid_client(ws, prev_client))
             prev_client = NULL;
 
           // Unlink from list
-          if(client == ws -> master_client)
-            ws -> master_client = client -> next_client;
+          if(!client -> is_floating && !client -> is_scratchpad)
+          {
+            if(client == ws -> master_client)
+              ws -> master_client = client -> next_client;
+            else
+            {
+              if(prev_client && is_valid_client(ws, prev_client))
+                prev_client -> next_client = client -> next_client;
+            }
+          }
           else
           {
-            if(prev_client && is_valid_client(ws, prev_client))
-              prev_client -> next_client = client -> next_client;
+            if(client == ws -> master_floating)
+              ws -> master_floating = client -> next_client;
+            else
+            {
+              if(prev_client && is_valid_client(ws, prev_client))
+                prev_client -> next_client = client -> next_client;
+            }
           }
 
           if(ws -> last_focused && !is_valid_client(ws, ws -> last_focused))
@@ -1517,6 +1552,9 @@ int main()
               new_focus = ws -> master_client;
             else
               new_focus = NULL;
+
+            if(ws -> focused_floating == client)
+              ws -> focused_floating = NULL;
           }
 
 
