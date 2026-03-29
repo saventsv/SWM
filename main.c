@@ -680,6 +680,24 @@ Client *find_prev_client(Client *client)
   return NULL;
 }
 
+Client *find_prev_floating(Client *client)
+{
+  Workspace *ws = &WM.workspaces[WM.current_workspace];
+  Client *prev_client = NULL;
+  Client *curr_client = ws -> master_floating;
+
+  while(curr_client)
+  {
+    if (curr_client == client)
+      return prev_client;
+
+    prev_client = curr_client;
+    curr_client = curr_client -> next_client;
+  }
+
+  return NULL;
+}
+
 Client *find_last_client(Workspace *ws)
 {
   Client *last_client = ws -> master_client;
@@ -910,7 +928,12 @@ void move_window_workspace(Display *dpy, const Arg *arg)
   else
     client = curr_ws -> focused_floating;
 
-  Client *prev_client = find_prev_client(client);
+  Client *prev_client = NULL;
+
+  if(!client -> is_floating && !client -> is_scratchpad)
+    prev_client = find_prev_client(client);
+  else
+    prev_client = find_prev_floating(client);
 
   // Check If Current Window is master
   if(client == curr_ws -> master_client)
@@ -1230,7 +1253,6 @@ void unlink_client(Workspace *ws, Client *client)
     else
     {
       Client *prev_client = find_prev_client(client);
-      if(!prev_client) return;
       prev_client -> next_client = client -> next_client;
     }
   }
@@ -1240,11 +1262,12 @@ void unlink_client(Workspace *ws, Client *client)
       ws -> master_floating = ws -> master_floating -> next_client;
     else
     {
-      Client *prev_client = find_prev_client(client);
+      Client *prev_client = find_prev_floating(client);
       if(!prev_client) return;
       prev_client -> next_client = client -> next_client;
     }
   }
+  client -> next_client = NULL;
 }
 
 Client *destroy_client(Display *dpy, Workspace *ws, Client *client)
@@ -1252,10 +1275,11 @@ Client *destroy_client(Display *dpy, Workspace *ws, Client *client)
   if(!client) return NULL;
 
   Client *next_focus = NULL;
+  Client *next = client -> next_client;
 
   unlink_client(ws, client);
 
-  next_focus = client -> next_client ? client -> next_client : ws -> master_client;
+  next_focus = next ? next : ws -> master_client;
 
   if(!client -> is_floating && !client -> is_scratchpad)
     ws -> n_clients--;
