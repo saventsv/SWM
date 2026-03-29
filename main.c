@@ -175,6 +175,16 @@ int is_valid_client(Workspace *ws, Client *target_client)
       return 1;
     client = client -> next_client;
   }
+  if(!client)
+  {
+    client = ws -> master_floating;
+    while(client)
+    {
+      if(client == target_client)
+        return 1;
+      client = client -> next_client;
+    }
+  }
   return 0;
 }
 
@@ -184,22 +194,29 @@ void set_focus(Display *dpy, Workspace *ws, Client *client)
 
   if(!client -> is_scratchpad && !client -> is_floating)
   {
-    if(ws -> focused_floating)
-      ws -> focused_floating = NULL;
-
-    if (ws -> focused && ws -> focused != client && is_valid_client(ws, ws -> focused))
+    if(ws -> focused &&
+        ws -> focused != client &&
+        ws -> focused != ws -> master_client &&
+        is_valid_client(ws, ws -> focused) &&
+        !ws -> focused -> is_scratchpad &&
+        !ws -> focused -> is_floating
+        )
     {
-
-      if(ws -> focused && ws -> focused != client && ws -> focused != ws -> master_client)
-        ws -> last_focused = ws -> focused;
+      ws -> last_focused = ws -> focused;
     }
   }
   // ws -> last_focused = ws -> focused; 
 
   if(!client -> is_scratchpad && !client -> is_floating)
+  {
     ws -> focused = client;
+    ws -> focused_floating = NULL;
+  }
   else
+  {
     ws -> focused_floating = client;
+    ws -> focused= NULL;
+  }
 
   XSetInputFocus(
       dpy,
@@ -230,7 +247,7 @@ void update_borders(Display *dpy) {
 
   while(client)
   {
-    if(client == ws -> focused)
+    if(client == ws -> focused && !ws -> focused_floating)
     {
       if(WM.key_state == 0)
       {
