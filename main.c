@@ -175,25 +175,16 @@ void setup_numlockmask(Display *dpy) {
 
 int is_valid_client(Workspace *ws, Client *target_client)
 {
-  Client *client = NULL; 
+  Client *client;
 
-  client = ws -> master_client;
-  while(client)
-  {
-    if (client == target_client)
+  for(client = ws -> master_client; client; client = client -> next_client)
+    if(client == target_client)
       return 1;
-    client = client -> next_client;
-  }
-  if(!client)
-  {
-    client = ws -> master_floating;
-    while(client)
-    {
-      if(client == target_client)
-        return 1;
-      client = client -> next_client;
-    }
-  }
+
+  for(client = ws -> master_floating; client; client = client -> next_client)
+    if(client == target_client)
+      return 1;
+
   return 0;
 }
 
@@ -264,6 +255,33 @@ void update_borders(Display *dpy) {
   while(client)
   {
     if(client == ws -> focused && ws -> focused -> type == TILED)
+    {
+      if(WM.key_state == 0)
+      {
+        if(client -> window)
+          XSetWindowBorder(dpy, client -> window, active_px);
+      }
+      else
+      {
+        if(client -> window)
+          XSetWindowBorder(dpy, client -> window, chord_px);
+      }
+    }
+    else
+    {
+      if(client -> window)
+        XSetWindowBorder(dpy, client -> window, inactive_px);
+    }
+    client = client -> next_client;
+  }
+
+  client = ws -> master_floating;
+
+  if(!client)
+    return;
+  while(client)
+  {
+    if(client == ws -> focused && ws -> focused -> type != TILED)
     {
       if(WM.key_state == 0)
       {
@@ -780,7 +798,7 @@ void focus(Display *dpy, const Arg *arg)
             else 
             {
               new_focus = ws -> master_client -> next_client;
-              set_focus(dpy, ws, ws -> focused);
+              set_focus(dpy, ws, new_focus);
               break;
             }
           }
@@ -924,7 +942,7 @@ void focus_workspace(Display *dpy, const Arg *arg)
   tile(dpy);
   update_borders(dpy);
 
-  WM.is_occupied = 1;
+  WM.is_occupied = 0;
 }
 
 void move_window_workspace(Display *dpy, const Arg *arg)
@@ -1276,6 +1294,9 @@ void unlink_client(Display *dpy, Workspace *ws, Client *client)
     }
   }
   client -> next_client = NULL;
+
+  if(ws -> focused == client) ws -> focused = NULL;
+  if(ws -> last_focused == client) ws -> last_focused = NULL;
 }
 
 void destroy_client(Display *dpy, Workspace *ws, Client *client)
@@ -1284,18 +1305,12 @@ void destroy_client(Display *dpy, Workspace *ws, Client *client)
 
   Client *new_focus = NULL;
 
-  if(ws -> focused == client) ws -> focused = NULL;
-  if(ws -> last_focused == client) ws -> last_focused = NULL;
-
   if(ws -> last_focused && is_valid_client(ws, ws -> last_focused))
     new_focus = ws -> last_focused;
   else if(ws -> master_client && is_valid_client(ws, ws -> master_client))
     new_focus = ws -> master_client;
   else if(ws -> master_floating && is_valid_client(ws, ws -> master_floating))
     new_focus = ws -> master_floating;
-
-  if(ws -> focused == client) ws -> focused = NULL;
-  if(ws -> last_focused == client) ws -> last_focused = NULL;
 
   unlink_client(dpy, ws, client);
 
@@ -1493,10 +1508,11 @@ int main()
             if(current_client == NULL)
             {
               ws -> master_client = client;
-              XMapWindow(dpy, client -> window);
               new_focus = client;
-              set_focus(dpy, ws, new_focus);
+              XMapWindow(dpy, client -> window);
               tile(dpy);
+              set_focus(dpy, ws, new_focus);
+              update_borders(dpy);
               break;
             }
             else
@@ -1507,10 +1523,10 @@ int main()
 
               // When the Last Client is Found Set its next_client Equal to The New Client
               current_client -> next_client = client;
-              XMapWindow(dpy, client -> window);
               new_focus = client;
-              set_focus(dpy, ws, new_focus);
+              XMapWindow(dpy, client -> window);
               tile(dpy);
+              set_focus(dpy, ws, new_focus);
               update_borders(dpy);
             }
           } 
@@ -1578,6 +1594,7 @@ int main()
           }
 
           update_borders(dpy);
+          tile_scratchpad(dpy);
           tile(dpy);
           break;
         }
