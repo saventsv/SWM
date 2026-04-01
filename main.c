@@ -81,7 +81,7 @@ typedef union
   int i;
   const char *c;
   const void *v;
-  Direction direction;
+  Direction d;
 } Arg;
 
 // Keybinds and Key Chords
@@ -506,8 +506,6 @@ int has_proto(Display *dpy, Window w, Atom protocol) {
 
 int is_scratchpad(Display *dpy, Client *client)
 {
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
-
   XClassHint class_hint = {0};
 
   if(!XGetClassHint(dpy, client -> window, &class_hint))
@@ -782,10 +780,10 @@ void focus(Display *dpy, const Arg *arg)
   // i will be used as a index
   int i = 0;
 
-  if(!arg || !arg -> direction) return;
+  if(!arg) return;
   if(ws -> n_clients < 2) return;
 
-  switch(arg -> direction)
+  switch(arg -> d)
   {
 
     case LEFT:
@@ -822,7 +820,6 @@ void focus(Display *dpy, const Arg *arg)
             {
               if(ws -> last_focused && is_valid_client(ws, ws -> last_focused) && ws -> last_focused != ws -> master_client)
               {
-                Client *tmp = ws -> focused;
                 if(ws -> last_focused && is_valid_client(ws, ws -> last_focused))
                   new_focus = ws -> last_focused;
               }
@@ -1073,9 +1070,9 @@ void move_window(Display *dpy, const Arg *arg)
     return;
 
   // NULL and range check
-  if(!arg || !arg -> direction) return;
+  if(!arg) return;
 
-  switch(arg -> direction)
+  switch(arg -> d)
   {
 
     case LEFT:
@@ -1309,20 +1306,42 @@ void destroy_client(Display *dpy, Workspace *ws, Client *client)
   if(!client) return;
 
   Client *new_focus = NULL;
+  Client *prev_client = NULL;
 
-  Client *prev_client = find_prev_client(ws, client);
+  if(client -> type == TILED)
+    prev_client = find_prev_client(ws, client);
+  else
+    prev_client = find_prev_floating(ws, client);
 
   unlink_client(dpy, ws, client);
 
-  if(ws -> last_focused && is_valid_client(ws, ws -> last_focused))
-    new_focus = ws -> last_focused;
-  else if(prev_client && is_valid_client(ws, prev_client))
-    new_focus = prev_client;
-  else if(ws -> master_client && is_valid_client(ws, ws -> master_client))
-    new_focus = ws -> master_client;
-  else if(ws -> master_floating && is_valid_client(ws, ws -> master_floating))
-    new_focus = ws -> master_floating;
 
+  if(client -> type == TILED)
+  {
+    if(ws -> last_focused && is_valid_client(ws, ws -> last_focused))
+      new_focus = ws -> last_focused;
+    else if(prev_client && is_valid_client(ws, prev_client))
+      new_focus = prev_client;
+    else if(ws -> master_client && is_valid_client(ws, ws -> master_client))
+      new_focus = ws -> master_client;
+    else if(ws -> master_floating && is_valid_client(ws, ws -> master_floating))
+      new_focus = ws -> master_floating;
+    else
+      new_focus = NULL;
+  }
+  else
+  {
+    if(ws -> last_focused && is_valid_client(ws, ws -> last_focused))
+      new_focus = ws -> last_focused;
+    else if(prev_client && is_valid_client(ws, prev_client))
+      new_focus = prev_client;
+    else if(ws -> master_floating && is_valid_client(ws, ws -> master_floating))
+      new_focus = ws -> master_floating;
+    else if(ws -> master_client && is_valid_client(ws, ws -> master_client))
+      new_focus = ws -> master_client;
+    else
+      new_focus = NULL;
+  }
 
   if(client -> type == FLOATING || client -> type == SCRATCHPAD)
     ws -> n_floating--;

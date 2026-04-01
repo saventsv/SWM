@@ -40,16 +40,16 @@ static const Keybinding keybindings[] = {
   /* Windows */
 
   /* Focusing */
-  { MOD,               XK_h,          focus,                  { .direction = LEFT }       },
-  { MOD,               XK_l,          focus,                  { .direction = RIGHT }       },
-  { MOD,               XK_k,          focus,                  { .direction = UP }       },
-  { MOD,               XK_j,          focus,                  { .direction = DOWN }       },
+  { MOD,               XK_h,          focus,                  { .d = LEFT }    },
+  { MOD,               XK_l,          focus,                  { .d = RIGHT }   },
+  { MOD,               XK_k,          focus,                  { .d = UP }       },
+  { MOD,               XK_j,          focus,                  { .d = DOWN }       },
 
   /* Moving Windows */
-  { MOD | SHIFT,       XK_h,          move_window,            { .i = 0 }       },
-  { MOD | SHIFT,       XK_l,          move_window,            { .i = 1 }       },
-  { MOD | SHIFT,       XK_k,          move_window,            { .i = 2 }       },
-  { MOD | SHIFT,       XK_j,          move_window,            { .i = 3 }       },
+  { MOD | SHIFT,       XK_h,          move_window,            { .d = LEFT }    },
+  { MOD | SHIFT,       XK_l,          move_window,            { .d = RIGHT }   },
+  { MOD | SHIFT,       XK_k,          move_window,            { .d = UP }      },
+  { MOD | SHIFT,       XK_j,          move_window,            { .d = DOWN }    },
 
   /* Focusing Workspace */
   { MOD,               XK_1,          focus_workspace,        { .i = 0 }       },
