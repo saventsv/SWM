@@ -59,7 +59,6 @@ typedef struct
 {
   Client *master_client;
   Client *focus_head;
-  Client *master_floating;
   int n_clients;
   int n_floating;
   int id;
@@ -532,17 +531,6 @@ Client *find_scratchpad(Display *dpy, int index)
 
 /* Windows */
 
-void tile_scratchpad(Display *dpy)
-{
-
-  Workspace *ws = &WM.workspaces[WM.current_workspace];
-  int screen = DefaultScreen(dpy);
-  int screen_width = DisplayWidth(dpy, screen);
-  int screen_height = DisplayHeight(dpy, screen);
-
-
-}
-
 void tile(Display *dpy)
 {
 
@@ -633,7 +621,7 @@ void tile(Display *dpy)
     }
     else
     {
-      int stack_count = ws -> n_clients - 1;
+      int stack_count = ws -> n_clients - ws -> n_floating - 1;
       if(stack_count <= 0)
       {
         client = client -> next_client;
@@ -753,135 +741,6 @@ void focus(Display *dpy, const Arg *arg)
   }
 }
 
-/*
-   void focus(Display *dpy, const Arg *arg) 
-   {
-   Workspace *ws = &WM.workspaces[WM.current_workspace];
-   Client *client = ws -> master_client;
-   Client *new_focus = ws -> focus_head;
-// i will be used as a index
-int i = 0;
-
-if(!arg) return;
-if(ws -> n_clients < 2) return;
-
-switch(arg -> d)
-{
-
-case LEFT:
-{
-while(client)
-{
-if(client == ws -> focused)
-{
-if(i > 0)
-{
-while(new_focus != ws -> master_client)
-new_focus = new_focus -> focus_next;
-}
-else 
-{
-new_focus = ws -> master_client -> next_client;
-set_focus(dpy, ws, new_focus);
-break;
-}
-}
-i++;
-client = client -> next_client;
-}
-break;
-}
-case RIGHT:
-{
-while(client)
-{
-if(client == ws -> focused)
-{
-if(i == 0)
-{
-if(ws -> last_focused && is_valid_client(ws, ws -> last_focused) && ws -> last_focused != ws -> master_client)
-{
-if(ws -> last_focused && is_valid_client(ws, ws -> last_focused))
-new_focus = ws -> last_focused;
-}
-else
-new_focus = ws -> master_client -> next_client;
-set_focus(dpy, ws, new_focus);
-break;
-}
-else
-{
-new_focus = ws -> master_client;
-set_focus(dpy, ws, new_focus);
-break;
-}
-}
-i++;
-client = client -> next_client;
-}
-break;
-}
-case UP:
-{
-while(client)
-{
-  if(client == ws -> focused)
-  {
-    if(i == 0)
-    {
-      Client *last_client = find_last_client(ws);
-      new_focus = last_client;
-      set_focus(dpy, ws, new_focus);
-      break;
-    }
-    else if (i == 1)
-    {
-      new_focus = ws -> master_client;
-      set_focus(dpy, ws, new_focus);
-      break;
-    } 
-    else
-    {
-      Client *prev_client = find_prev_client(ws, client);
-      new_focus = prev_client;
-      set_focus(dpy, ws, new_focus);
-      break;
-    }
-  }
-  i++;
-  client = client -> next_client;
-}
-break;
-}
-case DOWN:
-{
-  while(client)
-  {
-    if(client == ws -> focused)
-    {
-      if(client -> next_client == NULL)
-      {
-        new_focus = ws -> master_client;
-        set_focus(dpy, ws, new_focus);
-        break;
-      }
-      else
-      {
-        new_focus = ws -> focused -> next_client;
-        set_focus(dpy, ws, new_focus);
-        break;
-      }
-    }
-    i++;
-    client = client -> next_client;
-  }
-  break;
-}
-}
-}
-
-*/
-
 void focus_workspace(Display *dpy, const Arg *arg)
 {
   WM.is_occupied = 1;
@@ -950,10 +809,7 @@ void move_window_workspace(Display *dpy, const Arg *arg)
 
   Client *prev_client = NULL;
 
-  if(client -> type == TILED)
-    prev_client = find_prev_client(curr_ws, client);
-  else
-    prev_client = find_prev_floating(curr_ws, client);
+  prev_client = find_prev_client(curr_ws, client);
 
   if(client -> type == TILED)
   {
@@ -973,37 +829,16 @@ void move_window_workspace(Display *dpy, const Arg *arg)
 
     set_focus(dpy, new_ws, client);
   }
-  else
-  {
-    if(client == curr_ws -> master_floating)
-      curr_ws -> master_floating = client -> next_client;
-    else
-      prev_client -> next_client = client -> next_client;
 
-    if(!new_ws -> master_floating)
-      new_ws -> master_floating = client;
-    else
-    {
-      Client *last_client = find_last_floating(new_ws);
-      last_client -> next_client = client;
-      client -> next_client = NULL;
-    }
-
-  }
-
-  if(client -> type == TILED)
-  {
-    curr_ws -> n_clients--;
-    new_ws -> n_clients++;
-  }
-  else
+  curr_ws -> n_clients--;
+  new_ws -> n_clients++;
+  if(client -> type != TILED)
   {
     curr_ws -> n_floating--;
     new_ws -> n_floating++;
   }
 
   focus_workspace(dpy, arg);
-  tile_scratchpad(dpy);
   tile(dpy);
   set_focus(dpy, new_ws, new_ws -> focus_head);
   update_borders(dpy);
@@ -1206,7 +1041,6 @@ void toggle_scratchpad(Display *dpy, const Arg *arg)
   }
 
   tile(dpy);
-  tile_scratchpad(dpy);
   update_borders(dpy);
 }
 
@@ -1245,26 +1079,13 @@ void unlink_client(Display *dpy, Workspace *ws, Client *client)
   if(!client)
     return;
 
-  if(client -> type == TILED)
-  {
-    // Adjust client linked list
-    if(client == ws -> master_client)
-      ws -> master_client = client -> next_client;
-    else
-    {
-      Client *prev_client = find_prev_client(ws, client);
-      prev_client -> next_client = client -> next_client;
-    }
-  }
+  // Adjust client linked list
+  if(client == ws -> master_client)
+    ws -> master_client = client -> next_client;
   else
   {
-    if(client == ws -> master_floating)
-      ws -> master_floating = client -> next_client;
-    else
-    {
-      Client *prev_client = find_prev_floating(ws, client);
-      prev_client -> next_client = client -> next_client;
-    }
+    Client *prev_client = find_prev_client(ws, client);
+    prev_client -> next_client = client -> next_client;
   }
 
   if(client -> focus_prev)
@@ -1492,8 +1313,7 @@ int main()
 
           XMapWindow(dpy, client -> window);
           tile(dpy);
-          tile_scratchpad(dpy);
-          set_focus(dpy, ws, ws -> focus_head);
+          set_focus(dpy, ws, client);
           update_borders(dpy);
 
           break;
@@ -1538,7 +1358,6 @@ int main()
           }
 
           update_borders(dpy);
-          tile_scratchpad(dpy);
           tile(dpy);
           break;
         }
@@ -1566,7 +1385,6 @@ int main()
           destroy_client(dpy, ws, client);
 
           tile(dpy);
-          tile_scratchpad(dpy);
           update_borders(dpy);
           break;
         }
