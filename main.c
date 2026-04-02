@@ -549,7 +549,7 @@ void tile(Display *dpy)
 
 
   // MASTER_RATIO from conifig file
-  int master_width = ws -> n_clients > 1 ? screen_width * master_ratio: screen_width ;
+  int master_width = ws -> n_clients - ws -> n_floating > 1 ? screen_width * master_ratio: screen_width ;
   int master_height = screen_height;
   int stack_width = screen_width - master_width;
   int stack_x = master_width;
@@ -596,6 +596,8 @@ void tile(Display *dpy)
         XSetWindowBorder(dpy, client -> window, inactive_px);
 
       client = client -> next_client;
+      if(!client)
+        break;
       continue;
     }
     // If Master
@@ -1015,9 +1017,8 @@ void toggle_scratchpad(Display *dpy, const Arg *arg)
     else
     {
       XMapRaised(dpy, client -> window);
+      set_focus(dpy, ws, client);
       client -> is_visible = 1;
-      new_focus = client;
-      set_focus(dpy, ws, new_focus);
     }
   }
   else
@@ -1067,13 +1068,19 @@ void unlink_client(Display *dpy, Workspace *ws, Client *client)
 
   // Adjust client linked list
   if(client == ws -> master_client)
+  {
     ws -> master_client = client -> next_client;
+    if(ws -> master_client)
+      ws -> master_client -> prev_client = NULL;
+  }
   else
   {
     Client *prev_client = client -> prev_client;
     Client *next_client = client -> next_client;
-    next_client -> prev_client = prev_client;
-    prev_client -> next_client = client -> next_client;
+    if(next_client)
+      next_client -> prev_client = prev_client;
+    if(prev_client)
+      prev_client -> next_client = client -> next_client;
   }
 
   if(client -> focus_prev)
@@ -1108,9 +1115,9 @@ void destroy_client(Display *dpy, Workspace *ws, Client *client)
   else
     new_focus = NULL;
 
+  ws -> n_clients--;
   if(client -> type == FLOATING || client -> type == SCRATCHPAD)
     ws -> n_floating--;
-  ws -> n_clients--;
 
   unlink_client(dpy, ws, client);
   free(client);
