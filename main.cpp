@@ -110,8 +110,20 @@ class Client
 };
 
 
-
-
+typedef struct 
+{
+  float master_ratio;
+  int gaps;
+  int border_width;
+  float scratchpad_width;
+  float scratchpad_height;
+  unsigned long active_px;
+  unsigned long inactive_px;
+  unsigned long chord_px;
+  const char *color_active;
+  const char *color_inactive;
+  const char *color_chord;
+} WMConfig;
 
 class WindowManager;
 
@@ -119,16 +131,14 @@ class Workspace
 {
   public:
     std::vector<std::unique_ptr<Client>> clients;
-    WindowManager *wm;
     int focused;
     int last_focused;
     int n_clients;
     int n_floating;
     int id;
 
-    void tile(Display *dpy)
+    void tile(Display *dpy, const WMConfig &config)
     {
-      this -> wm -> is_occupied = true;
 
       if(this -> clients.empty()) return;
 
@@ -141,7 +151,7 @@ class Workspace
 
 
       // MASTER_RATIO from conifig file
-      int master_width = this -> n_clients - this -> n_floating > 1 ? screen_width * this -> wm -> master_ratio: screen_width ;
+      int master_width = this -> n_clients - this -> n_floating > 1 ? screen_width * config.master_ratio: screen_width ;
       int master_height = screen_height;
       int stack_width = screen_width - master_width;
       int stack_x = master_width;
@@ -158,8 +168,8 @@ class Workspace
         Client &client = *this -> clients[i];
         if(client.type != TILED)
         {
-          int pad_width = screen_width *  this -> wm -> scratchpad_width;
-          int pad_height = screen_height * this -> wm -> scratchpad_height;
+          int pad_width = screen_width *  config.scratchpad_width;
+          int pad_height = screen_height * config.scratchpad_height;
           int pad_x = (screen_width - pad_width) / 2;
           int pad_y = (screen_height - pad_height) / 2;
 
@@ -170,8 +180,8 @@ class Workspace
               client.window, 
               pad_x, 
               pad_y, 
-              pad_width - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2), 
-              pad_height - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2)
+              pad_width - (config.gaps * 2) - (config.border_width * 2), 
+              pad_height - (config.gaps * 2) - (config.border_width * 2)
               );
           XRaiseWindow(dpy, client.window);
 
@@ -180,31 +190,31 @@ class Workspace
           client.width = pad_width;
           client.height = pad_height;
 
-          XSetWindowBorderWidth(dpy, client.window, this -> wm -> border_width);
+          XSetWindowBorderWidth(dpy, client.window, config.border_width);
 
 
           if(i == this -> focused)
-            XSetWindowBorder(dpy, client.window, this -> wm -> active_px);
+            XSetWindowBorder(dpy, client.window, config.active_px);
           else
-            XSetWindowBorder(dpy, client.window, this -> wm -> inactive_px);
+            XSetWindowBorder(dpy, client.window, config.inactive_px);
 
           continue;
         }
         // If Master
         if (i == 0) 
         {
-          XSetWindowBorderWidth(dpy, client.window, this -> wm -> border_width);
+          XSetWindowBorderWidth(dpy, client.window, config.border_width);
           if(i == this -> focused)
-            XSetWindowBorder(dpy, client.window, this -> wm -> active_px);
+            XSetWindowBorder(dpy, client.window, config.active_px);
           else
-            XSetWindowBorder(dpy, client.window, this -> wm -> inactive_px);
+            XSetWindowBorder(dpy, client.window, config.inactive_px);
           XMoveResizeWindow(
               dpy, 
               client.window, 
-              0 + this -> wm -> gaps, 
-              offset_y + this -> wm -> gaps, 
-              master_width - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2), 
-              master_height - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2)
+              0 + config.gaps, 
+              offset_y + config.gaps, 
+              master_width - (config.gaps * 2) - (config.border_width * 2), 
+              master_height - (config.gaps * 2) - (config.border_width * 2)
               );
           client.x = 0;
           client.y = 0;
@@ -221,20 +231,20 @@ class Workspace
           int stack_height = screen_height / stack_count;
           int stack_y = stack_height * (i - 1);
 
-          XSetWindowBorderWidth(dpy, client.window, this -> wm -> border_width);
+          XSetWindowBorderWidth(dpy, client.window, config.border_width);
 
           if(i == this -> focused)
-            XSetWindowBorder(dpy, client.window, this -> wm -> active_px);
+            XSetWindowBorder(dpy, client.window, config.active_px);
           else
-            XSetWindowBorder(dpy, client.window, this -> wm -> inactive_px);
+            XSetWindowBorder(dpy, client.window, config.inactive_px);
 
           XMoveResizeWindow(
               dpy, 
               client.window, 
-              stack_x + this -> wm -> gaps, 
-              stack_y + this -> wm -> gaps + offset_y, 
-              stack_width - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2), 
-              stack_height - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2)
+              stack_x + config.gaps, 
+              stack_y + config.gaps + offset_y, 
+              stack_width - (config.gaps * 2) - (config.border_width * 2), 
+              stack_height - (config.gaps * 2) - (config.border_width * 2)
               );
           client.x = stack_x;
           client.y = stack_y;
@@ -243,7 +253,6 @@ class Workspace
         }
       }
 
-      this -> wm -> is_occupied = false;
     }
 
     int is_visible(Display *dpy, Window w)
@@ -391,7 +400,6 @@ class Workspace
             std::swap(this -> clients[this -> focused], this -> clients[MASTER_IDX]);
 
             set_focus(dpy, MASTER_IDX);
-            tile(dpy);
             break;
           }
         case RIGHT:
@@ -411,7 +419,6 @@ class Workspace
               set_focus(dpy, 1);
             }
 
-            tile(dpy);
             break;
           }
         case UP:
@@ -423,7 +430,6 @@ class Workspace
             std::swap(this -> clients[this -> focused], this -> clients[this -> focused - 1]);
 
             set_focus(dpy, this -> focused - 1);
-            tile(dpy);
             break;
           }
         case DOWN:
@@ -435,42 +441,12 @@ class Workspace
             std::swap(this -> clients[this -> focused], this -> clients[this -> focused + 1]);
 
             set_focus(dpy, this -> focused + 1);
-            tile(dpy);
             break;
           }
       }
     }
 
-    void close_window(Display *dpy, const Arg *arg)
-    {
 
-      if(this -> clients.empty())
-        return;
-
-      Client &client = *this -> clients[0];
-
-
-      Atom WM_DELETE_WINDOW = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
-      Atom WM_PROTOCOLS = XInternAtom(dpy, "WM_PROTOCOLS", False);
-      Atom proto = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
-
-      XEvent event = {0};
-
-      if(has_proto(dpy, client.window, proto))
-      {
-        event.xclient.type = ClientMessage;
-        event.xclient.window = client.window;
-        event.xclient.message_type = WM_PROTOCOLS;
-        event.xclient.format = 32;
-        event.xclient.data.l[0] = WM_DELETE_WINDOW;
-        event.xclient.data.l[1] = CurrentTime;
-        XSendEvent(dpy, client.window, False, NoEventMask, &event);
-      } else {
-        XKillClient(dpy, client.window);
-      }
-
-      XFlush(dpy);
-    }
     void destroy_client(Display *dpy, int client_idx)
     {
 
@@ -509,18 +485,8 @@ class WindowManager
     Display *dpy;
     int current_workspace;
     Workspace workspaces[MAX_WORKSPACES];
-    unsigned long active_px;
-    unsigned long inactive_px;
-    unsigned long chord_px;
+    WMConfig config;
 
-    float master_ratio;
-    int gaps;
-    int border_width;
-    float scratchpad_width;
-    float scratchpad_height;
-    const char *color_active;
-    const char *color_inactive;
-    const char *color_chord;
     // To make sure that focus follows mouse does not do any weird things
     bool is_occupied;
     bool running;
@@ -553,29 +519,10 @@ class WindowManager
       update_current_desktop(dpy);
       run_startup(dpy);
       cache_borders(dpy);
-      int n_chords = sizeof(chords) / sizeof(chords[0]);
-      int n_keys = sizeof(keybindings) / sizeof(keybindings[0]);
-      int n_locks = sizeof(locks) / sizeof(unsigned int);
-
-      // Loop to have X11 pass all the keys we want to us
-      for (int i = 0; i < n_keys; i++)
-      {
-        for(int j = 0; j < n_locks; j++) 
-        {
-          XGrabKey(
-              dpy, 
-              XKeysymToKeycode(dpy, keybindings[i].key), 
-              keybindings[i].mod | locks[j], 
-              DefaultRootWindow(dpy), 
-              True, 
-              GrabModeAsync, 
-              GrabModeAsync
-              );
-        }
-      }
 
       // Creates a new lua interpreter 
-      lua_State *L = luaL_newstate();
+      lua_State *L;
+      reload_config(L, this -> dpy);
       // Loads the standard library for lua
       luaL_openlibs(L);
 
@@ -592,18 +539,20 @@ class WindowManager
         return;
       }
 
-      this -> master_ratio = get_lua_number(L, "master_ratio", 0.5);
-      this -> gaps = get_lua_number(L, "gaps", 5);
-      this -> border_width = get_lua_number(L, "border_width", 2);
+      lua_getfield(L, -1, "appearance");
+      config.master_ratio = get_lua_number(L, "master_ratio", 0.5);
+      config.gaps = get_lua_number(L, "gaps", 5);
+      config.border_width = get_lua_number(L, "border_width", 2);
 
-      this -> scratchpad_width = get_lua_number(L, "scratchpad_width", 0.8);
-      this -> scratchpad_height = get_lua_number(L, "scratchpad_height", 0.7);
+
+      config.scratchpad_width = get_lua_number(L, "scratchpad_width", 0.8);
+      config.scratchpad_height = get_lua_number(L, "scratchpad_height", 0.7);
 
       lua_getfield(L, -1, "colors");
 
-      this -> color_active = get_table_string(L, "active", "#ffffff");
-      this -> color_inactive = get_table_string(L, "inactive", "#444444");
-      this -> color_chord = get_table_string(L, "chord", "#00ff00");
+      config.color_active = get_table_string(L, "active", "#ffffff");
+      config.color_inactive = get_table_string(L, "inactive", "#444444");
+      config.color_chord = get_table_string(L, "chord", "#00ff00");
 
       lua_pop(L, 1);
       lua_pop(L, 1);
@@ -671,8 +620,7 @@ class WindowManager
               }
 
 
-              // Tile to be safe
-              ws.tile(dpy);
+              ws.tile(dpy, this -> config);
               update_borders(dpy);
               break;
             }
@@ -703,7 +651,7 @@ class WindowManager
 
 
               XMapWindow(dpy, client.window);
-              ws.tile(dpy);
+              ws.tile(dpy, this);
               ws.set_focus(dpy, client_idx);
               update_borders(dpy);
 
@@ -750,7 +698,7 @@ class WindowManager
               }
 
               update_borders(dpy);
-              ws.tile(dpy);
+              ws.tile(dpy, this);
               break;
             }
 
@@ -770,7 +718,7 @@ class WindowManager
 
               ws.destroy_client(dpy, client_idx);
 
-              ws.tile(dpy);
+              ws.tile(dpy, this -> config);
               update_borders(dpy);
               break;
             }
@@ -792,9 +740,9 @@ class WindowManager
               // Loop through clients
               int client_idx = -1;
               for(int i = 0; i < ws.n_clients; i++)
-                if(ws.clients[i].window == crossing_event -> window)
+                if(ws.clients[i] -> window == crossing_event -> window)
                 {
-                  client = *ws.clients[i].get();
+                  client = ws.clients[i].get();
                   client_idx = i;
                 }
 
@@ -811,6 +759,39 @@ class WindowManager
       }
 
       lua_close(L);
+    }
+
+    void close_window(Display *dpy, const Arg *arg)
+    {
+
+      Workspace &ws = this -> workspaces[this -> current_workspace];
+
+      if(ws.clients.empty())
+        return;
+
+      Client &client = *ws.clients[0];
+
+
+      Atom WM_DELETE_WINDOW = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+      Atom WM_PROTOCOLS = XInternAtom(dpy, "WM_PROTOCOLS", False);
+      Atom proto = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+
+      XEvent event = {0};
+
+      if(has_proto(dpy, client.window, proto))
+      {
+        event.xclient.type = ClientMessage;
+        event.xclient.window = client.window;
+        event.xclient.message_type = WM_PROTOCOLS;
+        event.xclient.format = 32;
+        event.xclient.data.l[0] = WM_DELETE_WINDOW;
+        event.xclient.data.l[1] = CurrentTime;
+        XSendEvent(dpy, client.window, False, NoEventMask, &event);
+      } else {
+        XKillClient(dpy, client.window);
+      }
+
+      XFlush(dpy);
     }
 
     void spawn(Display *dpy, const Arg *arg)
@@ -866,7 +847,7 @@ class WindowManager
 
       update_current_desktop(dpy);
 
-      ws.tile(dpy);
+      ws.tile(dpy, this -> config);
       update_borders(dpy);
 
       this -> is_occupied = false;
@@ -881,7 +862,8 @@ class WindowManager
       lua_setglobal(L, name);          // make it callable from Lua
     }
 
-    void grab_keys(Display *dpy) {
+    void grab_keys(Display *dpy) 
+    {
       int n_locks = sizeof(locks) / sizeof(unsigned int);
 
       for (auto &kb : bind_keys) {
@@ -912,6 +894,46 @@ class WindowManager
       }
     }
 
+    void reload_config(lua_State *L, Display *dpy)
+    {
+      this -> bind_keys.clear();
+      this -> chord_keys.clear();
+
+      lua_close(L);
+      L = luaL_newstate();
+      luaL_openlibs(L);
+
+      init_lua(L);
+
+      lua_getglobal(L, "config");
+
+      if(!lua_istable(L, -1))
+      {
+        lua_pop(L, 1);
+        printf("config table is missing");
+        return;
+      }
+
+      lua_getfield(L, -1, "appearance");
+      config.master_ratio = get_lua_number(L, "master_ratio", 0.5);
+      config.gaps = get_lua_number(L, "gaps", 5);
+      config.border_width = get_lua_number(L, "border_width", 2);
+
+
+      config.scratchpad_width = get_lua_number(L, "scratchpad_width", 0.8);
+      config.scratchpad_height = get_lua_number(L, "scratchpad_height", 0.7);
+
+      lua_getfield(L, -1, "colors");
+
+      config.color_active = get_table_string(L, "active", "#ffffff");
+      config.color_inactive = get_table_string(L, "inactive", "#444444");
+      config.color_chord = get_table_string(L, "chord", "#00ff00");
+
+      this -> cache_borders(dpy);
+
+      grab_keys(dpy);
+    }
+
     void init_lua(lua_State *L)
     {
       lua_newtable(L);
@@ -930,12 +952,8 @@ class WindowManager
 
       lua_setglobal(L, "Direction");
 
-      lua_newtable(L);
-
-      lua_pushlightuserdata(L, this);
-      lua_pushcclosure(L, lua_focus, 1);
-
       register_function(L, "focus", lua_focus);
+      register_function(L, "reload", lua_reload);
       register_function(L, "bind", lua_bind);
       register_function(L, "exec", lua_spawn);
       register_function(L, "quit", lua_quit);
@@ -945,6 +963,15 @@ class WindowManager
       register_function(L, "move_workspace", lua_focus_workspace);
       register_function(L, "move_window", lua_move_window);
       register_function(L, "move_window_workspace", lua_move_window_workspace);
+    }
+
+    int lua_reload(lua_State *L)
+    {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+
+      wm -> reload_config(L, wm -> dpy);
+      return 0;
     }
 
     float get_lua_number(lua_State *L, const char *name, float default_val)
@@ -1326,20 +1353,12 @@ class WindowManager
           );
     }
 
-    void run_startup(Display *dpy) 
-    {
-      for (int i = 0; startup_commands[i] != NULL; i++) 
-      {
-        Arg arg = { .c = startup_commands[i] };
-        spawn(dpy, &arg);
-      }
-    }
 
     void cache_borders(Display *dpy)
     {
-      active_px = get_color(dpy, color_active);
-      inactive_px = get_color(dpy, color_inactive);
-      chord_px = get_color(dpy, color_chord);
+      config.active_px = get_color(dpy, config.color_active);
+      config.inactive_px = get_color(dpy, config.color_inactive);
+      config.chord_px = get_color(dpy, config.color_chord);
     }
 
     void update_borders(Display *dpy) {
@@ -1350,12 +1369,12 @@ class WindowManager
         if(i == ws.focused)
         {
           if(this -> in_chord == false)
-            XSetWindowBorder(dpy, ws.clients[i] -> window, active_px);
+            XSetWindowBorder(dpy, ws.clients[i] -> window, config.active_px);
           else
-            XSetWindowBorder(dpy, ws.clients[i] -> window, chord_px);
+            XSetWindowBorder(dpy, ws.clients[i] -> window, config.chord_px);
         }
         else
-          XSetWindowBorder(dpy, ws.clients[i] -> window, inactive_px);
+          XSetWindowBorder(dpy, ws.clients[i] -> window, config.inactive_px);
       }
 
     }
@@ -1373,24 +1392,6 @@ class WindowManager
             GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
         this -> in_chord = false; 
       }
-    }
-
-    void handle_chord(Display *dpy, const Chord chords[], int n_chords, KeySym key) {
-
-      for(int i = 0; i < n_chords; i++) {
-        if(chords[i].key == key) {
-          chords[i].func(dpy, &chords[i].arg);
-
-          // EXIT chord mode after success
-          this -> in_chord = false;
-          XUngrabKeyboard(dpy, CurrentTime);
-          return;
-        }
-      }
-
-      // If no match, also exit
-      this -> in_chord = false;
-      XUngrabKeyboard(dpy, CurrentTime);
     }
 
     void move_window_workspace(Display *dpy, const Arg *arg)
@@ -1433,8 +1434,8 @@ class WindowManager
 
       new_ws.set_focus(dpy, new_ws.n_clients - 1);
 
-      curr_ws.tile(dpy);
-      new_ws.tile(dpy);
+      curr_ws.tile(dpy, this -> config);
+      new_ws.tile(dpy, this -> config);
     }
 };
 
