@@ -6,14 +6,23 @@
 #include <optional>
 #include <set>
 #include <string.h>
+#include <string>
 #include <sys/wait.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <X11/X.h>
+#include <unordered_map>
 #include <utility>
 #include <vector>
+
+extern "C"
+{
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+}
 
 /* ==================== Global Constant Definitions ==================== */
 
@@ -65,29 +74,19 @@ typedef union
 
 // Keybinds and Key Chords
 
-typedef struct 
+typedef struct
 {
+  KeySym key;
   unsigned int mod;
-  KeySym key;
-  // Function pointer for callbacks
-  void (*func)(Display *dpy, const Arg *arg);
-  const Arg arg;
-} Keybinding;
-
-typedef struct 
-{
-  KeySym key;
-  void (*func)(Display *dpy, const Arg *arg);
-  const Arg arg;
-} Chord;
+  int lua_ref;
+  bool is_chord_prefix;
+} KeyBind;
 
 typedef struct {
   int left, right, top, bottom;
 } Strut;
 
 Strut global_strut = {0};
-
-#include "config.h"
 
 class Client
 {
@@ -120,6 +119,7 @@ class Workspace
 {
   public:
     std::vector<std::unique_ptr<Client>> clients;
+    WindowManager *wm;
     int focused;
     int last_focused;
     int n_clients;
@@ -128,6 +128,7 @@ class Workspace
 
     void tile(Display *dpy)
     {
+      this -> wm -> is_occupied = true;
 
       if(this -> clients.empty()) return;
 
@@ -140,7 +141,7 @@ class Workspace
 
 
       // MASTER_RATIO from conifig file
-      int master_width = this -> n_clients - this -> n_floating > 1 ? screen_width * master_ratio: screen_width ;
+      int master_width = this -> n_clients - this -> n_floating > 1 ? screen_width * this -> wm -> master_ratio: screen_width ;
       int master_height = screen_height;
       int stack_width = screen_width - master_width;
       int stack_x = master_width;
@@ -157,22 +158,20 @@ class Workspace
         Client &client = *this -> clients[i];
         if(client.type != TILED)
         {
-          int pad_width = screen_width * scratchpad_width;
-          int pad_height = screen_height * scratchpad_height;
+          int pad_width = screen_width *  this -> wm -> scratchpad_width;
+          int pad_height = screen_height * this -> wm -> scratchpad_height;
           int pad_x = (screen_width - pad_width) / 2;
           int pad_y = (screen_height - pad_height) / 2;
 
           // NULL check
-          if(!this -> clients[0])
-            return;
 
           XMoveResizeWindow(
               dpy, 
               client.window, 
               pad_x, 
               pad_y, 
-              pad_width - (gaps * 2) - (border_width * 2), 
-              pad_height - (gaps * 2) - (border_width * 2)
+              pad_width - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2), 
+              pad_height - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2)
               );
           XRaiseWindow(dpy, client.window);
 
@@ -181,31 +180,31 @@ class Workspace
           client.width = pad_width;
           client.height = pad_height;
 
-          XSetWindowBorderWidth(dpy, client.window, border_width);
+          XSetWindowBorderWidth(dpy, client.window, this -> wm -> border_width);
 
 
           if(i == this -> focused)
-            XSetWindowBorder(dpy, client.window, active_px);
+            XSetWindowBorder(dpy, client.window, this -> wm -> active_px);
           else
-            XSetWindowBorder(dpy, client.window, inactive_px);
+            XSetWindowBorder(dpy, client.window, this -> wm -> inactive_px);
 
           continue;
         }
         // If Master
         if (i == 0) 
         {
-          XSetWindowBorderWidth(dpy, client.window, border_width);
+          XSetWindowBorderWidth(dpy, client.window, this -> wm -> border_width);
           if(i == this -> focused)
-            XSetWindowBorder(dpy, client.window, active_px);
+            XSetWindowBorder(dpy, client.window, this -> wm -> active_px);
           else
-            XSetWindowBorder(dpy, client.window, inactive_px);
+            XSetWindowBorder(dpy, client.window, this -> wm -> inactive_px);
           XMoveResizeWindow(
               dpy, 
               client.window, 
-              0 + gaps, 
-              offset_y + gaps, 
-              master_width - (gaps * 2) - (border_width * 2), 
-              master_height - (gaps * 2) - (border_width * 2)
+              0 + this -> wm -> gaps, 
+              offset_y + this -> wm -> gaps, 
+              master_width - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2), 
+              master_height - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2)
               );
           client.x = 0;
           client.y = 0;
@@ -217,27 +216,25 @@ class Workspace
           int stack_count = this -> n_clients - this -> n_floating - 1;
           if(stack_count <= 0)
           {
-            i++;
-            client = *this -> clients[i];
             continue;
           }
           int stack_height = screen_height / stack_count;
           int stack_y = stack_height * (i - 1);
 
-          XSetWindowBorderWidth(dpy, client.window, border_width);
+          XSetWindowBorderWidth(dpy, client.window, this -> wm -> border_width);
 
           if(i == this -> focused)
-            XSetWindowBorder(dpy, client.window, active_px);
+            XSetWindowBorder(dpy, client.window, this -> wm -> active_px);
           else
-            XSetWindowBorder(dpy, client.window, inactive_px);
+            XSetWindowBorder(dpy, client.window, this -> wm -> inactive_px);
 
           XMoveResizeWindow(
               dpy, 
               client.window, 
-              stack_x + gaps, 
-              stack_y + gaps + offset_y, 
-              stack_width - (gaps * 2) - (border_width * 2), 
-              stack_height - (gaps * 2) - (border_width * 2)
+              stack_x + this -> wm -> gaps, 
+              stack_y + this -> wm -> gaps + offset_y, 
+              stack_width - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2), 
+              stack_height - (this -> wm -> gaps * 2) - (this -> wm -> border_width * 2)
               );
           client.x = stack_x;
           client.y = stack_y;
@@ -246,6 +243,7 @@ class Workspace
         }
       }
 
+      this -> wm -> is_occupied = false;
     }
 
     int is_visible(Display *dpy, Window w)
@@ -486,7 +484,7 @@ class Workspace
       {
         if(client.type != TILED)
         {
-          if(this.last_focused)
+          if(this -> last_focused)
             // This is done to make sure that last_focused is not a random client or freed client
             XSetInputFocus(dpy, this -> clients[this -> last_focused] -> window, RevertToPointerRoot, CurrentTime);
         }
@@ -508,29 +506,41 @@ class Workspace
 class WindowManager
 {
   public:
+    Display *dpy;
     int current_workspace;
     Workspace workspaces[MAX_WORKSPACES];
-    unsigned int numlockmask = 0;
     unsigned long active_px;
     unsigned long inactive_px;
     unsigned long chord_px;
+
+    float master_ratio;
+    int gaps;
+    int border_width;
+    float scratchpad_width;
+    float scratchpad_height;
+    const char *color_active;
+    const char *color_inactive;
+    const char *color_chord;
     // To make sure that focus follows mouse does not do any weird things
     bool is_occupied;
-    bool key_state;
     bool running;
+    bool in_chord;
+    std::vector<KeyBind> bind_keys;
+    std::vector<KeyBind> chord_keys;
 
     WindowManager()
     {
       current_workspace = 0;
       is_occupied = false;
       running = true;
-      key_state = true;
+      in_chord = false;
 
       for(int i = 0; i < MAX_WORKSPACES; i++)
       {
         workspaces[i].focused = -1;
         workspaces[i].last_focused = -1;
         workspaces[i].id = i;
+        workspaces[i].wm = this;
       }
     }
 
@@ -564,6 +574,50 @@ class WindowManager
         }
       }
 
+      // Creates a new lua interpreter 
+      lua_State *L = luaL_newstate();
+      // Loads the standard library for lua
+      luaL_openlibs(L);
+
+      this -> init_lua(L);
+      if(luaL_dofile(L, "swm.lua") != LUA_OK)
+        printf("Error: %s\n", lua_tostring(L, -1));
+
+      lua_getglobal(L, "config");
+
+      if(!lua_istable(L, -1))
+      {
+        lua_pop(L, 1);
+        printf("config table is missing");
+        return;
+      }
+
+      this -> master_ratio = get_lua_number(L, "master_ratio", 0.5);
+      this -> gaps = get_lua_number(L, "gaps", 5);
+      this -> border_width = get_lua_number(L, "border_width", 2);
+
+      this -> scratchpad_width = get_lua_number(L, "scratchpad_width", 0.8);
+      this -> scratchpad_height = get_lua_number(L, "scratchpad_height", 0.7);
+
+      lua_getfield(L, -1, "colors");
+
+      this -> color_active = get_table_string(L, "active", "#ffffff");
+      this -> color_inactive = get_table_string(L, "inactive", "#444444");
+      this -> color_chord = get_table_string(L, "chord", "#00ff00");
+
+      lua_pop(L, 1);
+      lua_pop(L, 1);
+
+      grab_keys(dpy);
+
+      // To write a lua compatible c++ function you muse have the lua_State *L in the function argument and must return a int
+      // for this if you want to use other values you have to have them be global or not requre them to be passed in via function signature (it has to be the same as defined above)
+      // to get passed in arguments to functions called in lua use the lua_to<type>(L, <argument number (starts at 1)>) 
+      // to push results back to lua use lua_push<type>(L, <value>) 
+      // the return state at the end of the functions is the number of values pushed back to lua
+      // to allow the lua function to access the wanted values use lua_register(L, "<name>", <name of c++ function>) but in this case we are making a function to allow use to use things in classes
+
+
       while(this -> running) 
       {
         XFlush(dpy);
@@ -575,29 +629,47 @@ class WindowManager
           case KeyPress:
             {
               Workspace &ws = this -> workspaces[this -> current_workspace];
-              // Definitions
+
               KeySym key = XLookupKeysym(&event.xkey, 0);
-              unsigned int mods = event.xkey.state;
-              unsigned int cleanmods = CLEANMASK(mods);
+              unsigned int mods = CLEANMASK(event.xkey.state);
 
-              // Means We Are In a Key Chord
-              if(this -> key_state == true) 
+              if(this -> in_chord)
               {
-                handle_chord(dpy, chords, n_chords, key);
-                ws.tile(dpy);
-                update_borders(dpy);
-                break;
-              }
-
-              // Call regular binds
-              for(int i = 0; i < n_keys; i++)
-              {
-                if (keybindings[i].key == key && CLEANMASK(keybindings[i].mod) == cleanmods)
+                for (auto &kb : this -> chord_keys)
                 {
-                  keybindings[i].func(dpy, &keybindings[i].arg);
-                  break;
+                  if(kb.key == key)
+                  {
+                    lua_rawgeti(L, LUA_REGISTRYINDEX, kb.lua_ref);
+                    lua_pcall(L, 0, 0, 0);
+                    break;
+                  }
+                }
+                this -> in_chord = false;
+                XUngrabKeyboard(dpy, CurrentTime);
+              }
+              else
+              {
+                for (auto &kb : this -> bind_keys) {
+                  if (kb.key == key && CLEANMASK(kb.mod) == mods) {
+
+                    // prefix → enter chord mode
+                    if (kb.lua_ref == -1) {
+                      this -> in_chord= true;
+                      this -> in_chord = true;
+
+                      XGrabKeyboard(dpy, DefaultRootWindow(dpy), True,
+                          GrabModeAsync, GrabModeAsync, CurrentTime);
+
+                      return;
+                    }
+
+                    lua_rawgeti(L, LUA_REGISTRYINDEX, kb.lua_ref);
+                    lua_pcall(L, 0, 0, 0);
+                    return;
+                  }
                 }
               }
+
 
               // Tile to be safe
               ws.tile(dpy);
@@ -653,13 +725,13 @@ class WindowManager
               if(ws.clients.empty())
                 break;
 
-              Client &client = *ws.clients[0];
+              Client *client = nullptr;
               bool managed = false;
 
               for(int i = 0; i < ws.n_clients; i++)
                 if(ws.clients[i] -> window == configure_event -> window)
                 {
-                  client = *ws.clients[i];
+                  client = ws.clients[i].get();
                   managed = true;
                 }
 
@@ -687,13 +759,13 @@ class WindowManager
             {
               // Definitions
               Workspace &ws = this -> workspaces[this -> current_workspace];
-              int client_idx;
+              int client_idx = -1;
 
               for(int i = 0; i < ws.n_clients; i++)
                 if(ws.clients[i] -> window == event.xdestroywindow.window)
                   client_idx = i;
 
-              if(!client_idx)
+              if(client_idx == -1)
                 break;
 
               ws.destroy_client(dpy, client_idx);
@@ -715,19 +787,19 @@ class WindowManager
               if(crossing_event -> mode != NotifyNormal || crossing_event -> detail == NotifyInferior)
                 break;
 
-              Client &client = *ws -> clients[0];
+              Client *client = ws.clients[0].get();
 
               // Loop through clients
               int client_idx = -1;
               for(int i = 0; i < ws.n_clients; i++)
                 if(ws.clients[i].window == crossing_event -> window)
                 {
-                  client = *ws.clients[i];
+                  client = *ws.clients[i].get();
                   client_idx = i;
                 }
 
               // prevent focusing already focused clients
-              if(client_idx == ws.clients[ws.focused]) 
+              if(client_idx == ws.focused) 
                 break;
 
               ws.set_focus(dpy, client_idx);
@@ -738,6 +810,7 @@ class WindowManager
         }
       }
 
+      lua_close(L);
     }
 
     void spawn(Display *dpy, const Arg *arg)
@@ -776,12 +849,12 @@ class WindowManager
 
       this -> current_workspace = arg -> i;
 
-      Workspace &ws = *this -> workspaces[this -> current_workspace]; 
+      Workspace &ws = this -> workspaces[this -> current_workspace]; 
 
 
       for(int i = 0; i < ws.n_clients; i++)
       {
-        Client &client = *ws -> clients[i];
+        Client &client = *ws.clients[i];
         if(client.type != SCRATCHPAD || client.visible)
           XMapWindow(dpy, client.window);
       }
@@ -801,6 +874,298 @@ class WindowManager
 
 
   private:
+
+    void register_function(lua_State *L, const char* name, lua_CFunction fn) {
+      lua_pushlightuserdata(L, this);  // store pointer to THIS object and allows use to use the functions inside out window manager
+      lua_pushcclosure(L, fn, 1);      // attach it to the function
+      lua_setglobal(L, name);          // make it callable from Lua
+    }
+
+    void grab_keys(Display *dpy) {
+      int n_locks = sizeof(locks) / sizeof(unsigned int);
+
+      for (auto &kb : bind_keys) {
+        for (int j = 0; j < n_locks; j++) {
+          XGrabKey(
+              dpy,
+              XKeysymToKeycode(dpy, kb.key),
+              kb.mod | locks[j],
+              DefaultRootWindow(dpy),
+              True,
+              GrabModeAsync,
+              GrabModeAsync
+              );
+        }
+      }
+
+      // chord keys (no modifiers)
+      for (auto &kb : chord_keys) {
+        XGrabKey(
+            dpy,
+            XKeysymToKeycode(dpy, kb.key),
+            AnyModifier,
+            DefaultRootWindow(dpy),
+            True,
+            GrabModeAsync,
+            GrabModeAsync
+            );
+      }
+    }
+
+    void init_lua(lua_State *L)
+    {
+      lua_newtable(L);
+
+      lua_pushnumber(L, LEFT);
+      lua_setfield(L, -2, "LEFT");
+
+      lua_pushnumber(L, RIGHT);
+      lua_setfield(L, -2, "RIGHT");
+
+      lua_pushnumber(L, UP);
+      lua_setfield(L, -2, "UP");
+
+      lua_pushnumber(L, DOWN);
+      lua_setfield(L, -2, "DOWN");
+
+      lua_setglobal(L, "Direction");
+
+      lua_newtable(L);
+
+      lua_pushlightuserdata(L, this);
+      lua_pushcclosure(L, lua_focus, 1);
+
+      register_function(L, "focus", lua_focus);
+      register_function(L, "bind", lua_bind);
+      register_function(L, "exec", lua_spawn);
+      register_function(L, "quit", lua_quit);
+      register_function(L, "close", lua_close);
+      register_function(L, "chord", lua_chord);
+      register_function(L, "activate_chord", lua_activate_chord);
+      register_function(L, "move_workspace", lua_focus_workspace);
+      register_function(L, "move_window", lua_move_window);
+      register_function(L, "move_window_workspace", lua_move_window_workspace);
+    }
+
+    float get_lua_number(lua_State *L, const char *name, float default_val)
+    {
+      lua_getglobal(L, name);
+
+      if(!lua_isnumber(L, -1))
+      {
+        lua_pop(L, 1);
+        return default_val;
+      }
+
+      float val = lua_tonumber(L, -1);
+      lua_pop(L, 1);
+      return val;
+    }
+
+    float get_table_number(lua_State *L, const char *key, float def)
+    {
+      lua_getfield(L, -1, key);
+
+      if(!lua_isnumber(L, -1))
+      {
+        lua_pop(L, -1);
+        return def;
+      }
+
+      float val = lua_tonumber(L, -1);
+      lua_pop(L, 1);
+      return val;
+    }
+
+    const char* get_table_string(lua_State *L, const char *key, const char *def)
+    {
+      lua_getfield(L, -1, key);
+
+      if(!lua_isstring(L, -1))
+      {
+        lua_pop(L, 1);
+        return def;
+      }
+
+      const chat *val = lua_tostring(L, -1);
+      lua_pop(L, 1);
+      return val;
+    }
+
+    const char* get_lua_string(lua_State *L, const char *name, const char *default_val)
+    {
+      lua_getglobal(L, name);
+
+      if(!lua_isstring(L, -1))
+      {
+        lua_pop(L, 1);
+        return default_val;
+      }
+
+      const char *val = lua_tostring(L, -1);
+      lua_pop(L, 1);
+      return val;
+    }
+
+    unsigned int parse_mods(lua_State *L, int index)
+    {
+      unsigned int mod = 0;
+
+      lua_pushnil(L);
+
+      while(lua_next(L, index))
+      {
+        const char *m = lua_tostring(L, -1);
+
+        if(strcmp(m, "Shift") == 0) mod |= ShiftMask;
+        else if(strcmp(m, "Ctrl") == 0) mod |= ControlMask;
+        else if(strcmp(m, "Alt") == 0) mod |= Mod1Mask;
+        else if(strcmp(m, "Mod") == 0) mod |= Mod4Mask;
+
+        lua_pop(L, 1);
+      }
+
+      return mod;
+    }
+
+    static int lua_chord(lua_State *L) {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+
+      const char *prefix_str = luaL_checkstring(L, 1);
+      luaL_checktype(L, 2, LUA_TTABLE);
+      luaL_checktype(L, 3, LUA_TTABLE);
+
+      KeySym prefix = XStringToKeysym(prefix_str);
+      unsigned int mod = wm->parse_mods(L, 2);
+
+      wm -> bind_keys.push_back({prefix, mod, -1});
+
+      lua_pushnil(L);
+      while (lua_next(L, 3)) {
+        const char *key_str = lua_tostring(L, -2);
+
+        KeySym key = XStringToKeysym(key_str);
+
+        lua_pushvalue(L, -1);
+        int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+        wm -> chord_keys.push_back({key, 0, ref});
+
+        lua_pop(L, 1);
+      }
+
+      return 0;
+    }
+
+    static int lua_bind(lua_State *L)
+    {
+      WindowManager *wm =
+        (WindowManager *)lua_touserdata(L, lua_upvalueindex(1));
+
+      const char *key_str = luaL_checkstring(L, 1);
+      luaL_checktype(L, 2, LUA_TTABLE);
+      luaL_checktype(L, 3, LUA_TFUNCTION);
+
+      KeySym key = XStringToKeysym(key_str);
+      unsigned int mod = wm -> parse_mods(L, 2);
+
+      lua_pushvalue(L, 3);
+      int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+      wm -> bind_keys.push_back({key, mod, ref});
+      return 0;
+    }
+
+    static int lua_quit(lua_State *L)
+    {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+
+      Arg arg = {.v = NULL};
+      wm -> quit(wm -> dpy, &arg);
+      return 0;
+    }
+
+    static int lua_activate_chord(lua_State *L)
+    {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+
+      Arg arg = {.v = NULL};
+      wm -> activate_chord(wm -> dpy, &arg);
+      return 0;
+    }
+
+    static int lua_close(lua_State *L) {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+      Workspace &ws = wm -> workspaces[wm -> current_workspace];
+
+      Arg arg = {.v = NULL};
+
+      ws.close_window(wm -> dpy, &arg);
+      return 0;
+    }
+
+    static int lua_spawn(lua_State *L) {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+
+      const char *arg = luaL_checkstring(L, 1);
+
+      Arg cmd = {.c = arg};
+      wm -> spawn(wm -> dpy, &cmd);
+      return 0;
+    }
+
+
+    static int lua_focus(lua_State *L) {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+      Workspace &ws = wm -> workspaces[wm -> current_workspace];
+
+      int direction = luaL_checkinteger(L, 1);
+      Arg arg = {.d = direction};
+
+      ws.focus(wm -> dpy, &arg);
+      return 0;
+    }
+
+    static int lua_move_window(lua_State *L) {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+      Workspace &ws = wm -> workspaces[wm -> current_workspace];
+
+      int direction = luaL_checkinteger(L, 1);
+      Arg arg = {.d = direction};
+
+      ws.move_window(wm -> dpy, &arg);
+      return 0;
+    }
+
+    static int lua_move_window_workspace(lua_State *L) {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+      Workspace &ws = wm -> workspaces[wm -> current_workspace];
+
+      int workspace = luaL_checkinteger(L, 1);
+      Arg arg = {.i = workspace};
+
+      wm -> move_window_workspace(wm -> dpy, &arg);
+      return 0;
+    }
+
+    static int lua_focus_workspace(lua_State *L) {
+      WindowManager *wm =
+        (WindowManager*)lua_touserdata(L, lua_upvalueindex(1));
+
+      int workspace = luaL_checkinteger(L, 1);
+      Arg arg = {.i = workspace};
+
+      wm -> focus_workspace(wm -> dpy, &arg);
+      return 0;
+    }
 
     int has_proto(Display *dpy, Window w, Atom protocol) {
       Atom *protocols;
@@ -984,7 +1349,7 @@ class WindowManager
       {
         if(i == ws.focused)
         {
-          if(this -> key_state == false)
+          if(this -> in_chord == false)
             XSetWindowBorder(dpy, ws.clients[i] -> window, active_px);
           else
             XSetWindowBorder(dpy, ws.clients[i] -> window, chord_px);
@@ -1002,11 +1367,11 @@ class WindowManager
 
 
     void activate_chord(Display *dpy, const Arg *arg) {
-      this -> key_state = true;
+      this -> in_chord = true;
 
       if (XGrabKeyboard(dpy, DefaultRootWindow(dpy), True,
             GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
-        this -> key_state = false; 
+        this -> in_chord = false; 
       }
     }
 
@@ -1017,14 +1382,14 @@ class WindowManager
           chords[i].func(dpy, &chords[i].arg);
 
           // EXIT chord mode after success
-          this -> key_state = false;
+          this -> in_chord = false;
           XUngrabKeyboard(dpy, CurrentTime);
           return;
         }
       }
 
       // If no match, also exit
-      this -> key_state = false;
+      this -> in_chord = false;
       XUngrabKeyboard(dpy, CurrentTime);
     }
 
@@ -1042,6 +1407,9 @@ class WindowManager
         return;
 
       auto moved = std::move(curr_ws.clients[curr_ws.focused]);
+      curr_ws.clients.erase(curr_ws.clients.begin() + curr_ws.focused);
+
+      new_ws.clients.push_back(std::move(moved));
 
       Client *client = moved.get();
 
@@ -1051,8 +1419,6 @@ class WindowManager
         curr_ws.focused = curr_ws.n_clients - 1;
       // else just stays the same
 
-      new_ws.clients.push_back(std::move(curr_ws.clients[curr_ws.focused]));
-      curr_ws.clients.erase(curr_ws.clients.begin() + curr_ws.focused);
 
       new_ws.focused = new_ws.n_clients - 1;
 
@@ -1081,6 +1447,8 @@ int main()
   Display *dpy;
   XEvent event;
   if(!(dpy = XOpenDisplay(0x0))) return 1;
+
+  WM.dpy = dpy;
 
   WM.run(dpy, event);
 }
