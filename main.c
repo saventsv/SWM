@@ -184,12 +184,19 @@ void setup_numlockmask(Display *dpy) {
 
 int is_valid_client(Workspace *ws, Client *target_client)
 {
-  Client *client;
+  Client *client = ws -> master_client;
+
+  if(!client)
+  {
+    fprintf(stderr, "master_client is NULL\n");
+    return 0;
+  }
 
   for(client = ws -> master_client; client; client = client -> next_client)
     if(client == target_client)
       return 1;
 
+  fprintf(stderr, "client %p not found in list\n", (void *)target_client);
   return 0;
 }
 
@@ -197,12 +204,14 @@ void set_focus(Display *dpy, Workspace *ws, Client *client)
 {
 
   if(!client || !is_valid_client(ws, client))
+  {
+    fprintf(stderr, "set_focus invalid client %p\n", (void *)client);
     return;
+  }
 
-
-  if(client -> focus_prev)
+  if(client -> focus_prev && is_valid_client(ws, client -> focus_prev))
     client -> focus_prev -> focus_next = client -> focus_next;
-  if(client -> focus_next)
+  if(client -> focus_next && is_valid_client(ws, client -> focus_next))
     client -> focus_next -> focus_prev = client -> focus_prev;
   if(ws -> focus_head == client)
     ws -> focus_head = client -> focus_next;
@@ -221,6 +230,7 @@ void set_focus(Display *dpy, Workspace *ws, Client *client)
       RevertToPointerRoot,
       CurrentTime
       );
+  fprintf(stderr, "focus set \n");
 }
 
 unsigned long get_color(Display *dpy, const char *color_name) {
@@ -244,7 +254,7 @@ void update_borders(Display *dpy) {
 
   while(client)
   {
-    if(client == ws -> focus_head && ws -> focus_head -> type == TILED)
+    if(client == ws -> focus_head)
     {
       if(WM.key_state == 0)
       {
@@ -683,6 +693,8 @@ void focus(Display *dpy, const Arg *arg)
     return;
   if(ws -> n_clients < 2)
     return;
+  if(!ws -> focus_head)
+    return;
 
   switch(arg -> d)
   {
@@ -795,13 +807,19 @@ void move_window_workspace(Display *dpy, const Arg *arg)
 
 
   Client *prev_client = client -> prev_client;
+  Client *next_client = client -> next_client;
 
   if(client -> type == TILED)
   {
     if(client == curr_ws -> master_client)
       curr_ws -> master_client = client -> next_client;
     else
-      prev_client -> next_client = client -> next_client;
+    {
+      if(prev_client)
+        prev_client -> next_client = client -> next_client;
+      if(next_client)
+        next_client -> prev_client = client -> prev_client;
+    }
 
     if(!new_ws -> master_client)
       new_ws -> master_client = client;
@@ -1066,54 +1084,53 @@ void unlink_client(Display *dpy, Workspace *ws, Client *client)
   if(!client)
     return;
 
-  // Adjust client linked list
-  if(client == ws -> master_client)
+  if(client == ws -> focus_head)
   {
-    ws -> master_client = client -> next_client;
-    if(ws -> master_client)
-      ws -> master_client -> prev_client = NULL;
-  }
-  else
-  {
-    Client *prev_client = client -> prev_client;
-    Client *next_client = client -> next_client;
-    if(next_client)
-      next_client -> prev_client = prev_client;
-    if(prev_client)
-      prev_client -> next_client = client -> next_client;
+    if(client -> focus_next)
+      ws -> focus_head = client -> focus_next;
+    else if(client -> focus_prev)
+      ws -> focus_head = client -> focus_prev;
+    else
+      ws -> focus_head = NULL;
+
+    if(ws -> focus_head)
+      ws -> focus_head -> focus_prev = NULL;
   }
 
+  if(client == ws -> master_client)
+  {
+    if(client -> next_client)
+    {
+      ws -> master_client = client -> next_client;
+      client -> next_client -> prev_client = NULL;
+    }
+    else
+      ws -> master_client = NULL;
+  }
+
+  // Client list
+  if(client -> prev_client)
+    client -> prev_client -> next_client = client -> next_client;
+
+  if(client -> next_client)
+    client -> next_client -> prev_client = client -> prev_client;
+
+  // Focus list
   if(client -> focus_prev)
     client -> focus_prev -> focus_next = client -> focus_next;
 
   if(client -> focus_next)
     client -> focus_next -> focus_prev = client -> focus_prev;
 
-  if(ws -> focus_head == client)
-    ws -> focus_head = client -> focus_next ? client -> focus_next : client -> focus_prev;
-
-
   client -> focus_prev = NULL;
   client -> focus_next = NULL;
   client -> next_client = NULL;
   client -> prev_client = NULL;
-  client = NULL;
 }
 
 void destroy_client(Display *dpy, Workspace *ws, Client *client)
 {
   if(!client) return;
-
-  Client *new_focus = NULL;
-
-  if(client -> focus_next)
-    new_focus = client -> focus_next;
-  else if(client -> focus_prev)
-    new_focus = client -> focus_prev;
-  else if(ws -> master_client)
-    new_focus = ws -> master_client;
-  else
-    new_focus = NULL;
 
   ws -> n_clients--;
   if(client -> type == FLOATING || client -> type == SCRATCHPAD)
@@ -1122,8 +1139,8 @@ void destroy_client(Display *dpy, Workspace *ws, Client *client)
   unlink_client(dpy, ws, client);
   free(client);
 
-  if(new_focus && is_valid_client(ws, new_focus))
-    set_focus(dpy, ws, new_focus);
+  if(ws -> focus_head && is_valid_client(ws, ws -> focus_head))
+    set_focus(dpy, ws, ws -> focus_head);
   else
     XSetInputFocus(dpy, DefaultRootWindow(dpy), RevertToPointerRoot, CurrentTime);
 }
@@ -1166,6 +1183,9 @@ int main()
 
   // Open Display
   if(!(dpy = XOpenDisplay(0x0))) return 1;
+
+  freopen("/home/saven/swm.log", "a", stderr);
+  fprintf(stderr, "\n===== NEW SESSION =====\n");
 
   // Init Window Manager
   init_wm();
@@ -1260,6 +1280,7 @@ int main()
       case MapRequest:
         {
 
+          fprintf(stderr, "MapRequest Triggered\n");
           Workspace *ws = &WM.workspaces[WM.current_workspace];
 
           if(is_dock(dpy, event.xmaprequest.window))
@@ -1276,6 +1297,7 @@ int main()
             break;
 
 
+          fprintf(stderr, "NEW CLIENT %p\n", (void*)client);
 
           client -> window = event.xmaprequest.window;
           XSelectInput(dpy, client -> window, EnterWindowMask);
@@ -1302,13 +1324,17 @@ int main()
           ws -> n_clients++;
 
           if(!ws -> master_client)
+          {
             ws -> master_client = client;
+            fprintf(stderr, "master_client %p\n", (void*)ws->master_client);
+          }
           else
           {
             Client *last_client = find_last_client(ws);
             last_client -> next_client = client;
             client -> prev_client = last_client;
           }
+
 
           XMapWindow(dpy, client -> window);
           tile(dpy);
@@ -1364,6 +1390,7 @@ int main()
         // When a window closes
       case DestroyNotify:
         {
+          fprintf(stderr, "DestroyNotify triggered\n");
           // Definitions
           Workspace *ws = &WM.workspaces[WM.current_workspace];
           Client *client = ws -> master_client;
@@ -1383,6 +1410,7 @@ int main()
 
           destroy_client(dpy, ws, client);
 
+          fprintf(stderr, "destroy_client finished\n");
           tile(dpy);
           update_borders(dpy);
           break;
