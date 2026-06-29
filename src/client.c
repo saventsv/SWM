@@ -16,10 +16,21 @@ ClientArray init_client_arr() {
 void append_client(Workspace *ws, Client *client) {
   if(ws->clients.size == ws->clients.capacity) {
     ws->clients.data = realloc(ws->clients.data, ws->clients.capacity * 2 * sizeof(Client*));
+
     if(ws->clients.data == NULL) abort();
+
     ws->clients.capacity*=2;
   } 
   ws->clients.data[ws->clients.size] = client;
   ws->clients.size++;
 }
 
+void swap_clients(Workspace *ws, int idx1, int idx2) {
+  if(idx1 < 0 || idx1 > ws->clients.size - 1) return;
+  if(idx2 < 0 || idx2 > ws->clients.size - 1) return;
+
+  Client *client = ws->clients.data[idx1];
+
+  ws->clients.data[idx1] = ws->clients.data[idx2];
+  ws->clients.data[idx2] = client;
+}
