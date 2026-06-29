@@ -52,8 +52,8 @@ typedef struct {
 void handle_maprequest(XEvent event);
 void handle_configurerequest(XEvent event);
 void handle_destorynotify(XEvent event);
-void tile(Display *dpy, Workspace *ws);
-void calculate_geometry(Workspace *ws);
+void tile(Display *dpy, Workspace *ws, Monitor *monitor);
+void calculate_geometry(Workspace *ws, Monitor *monitor);
 WindowManager init_wm();
 Client *get_client_win(Workspace *ws, Window win);
 void swap_clients(Workspace *ws, int idx1, int idx2);
