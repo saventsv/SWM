@@ -109,3 +109,11 @@ Client *get_client_win(Workspace *ws, Window win) {
 
   return NULL;
 }
+
+int get_client(Workspace *ws, Client *client) {
+  for(int i = 0; i < ws->clients.size; i++) {
+    if(ws->clients.data[i] == client) return i; 
+  }
+
+  return -1;
+}

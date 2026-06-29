@@ -2,6 +2,7 @@
 #include "wm.h"
 
 Client *get_client_win(Workspace *ws, Window win);
+int get_client(Workspace *ws, Client *client);
 void swap_clients(Workspace *ws, int idx1, int idx2);
 void append_client(Workspace *ws, Client *client);
 void insert_client(Workspace *ws, Client *client, int idx);
