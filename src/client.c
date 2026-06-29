@@ -18,11 +18,8 @@ void append_client(Workspace *ws, Client *client) {
     ws->clients.data = realloc(ws->clients.data, ws->clients.capacity * 2 * sizeof(Client*));
     if(ws->clients.data == NULL) abort();
     ws->clients.capacity*=2;
-    ws->clients.data[ws->clients.size] = client;
-    ws->clients.size++;
-  } else {
-    ws->clients.data[ws->clients.size] = client;
-    ws->clients.size++;
-  }
+  } 
+  ws->clients.data[ws->clients.size] = client;
+  ws->clients.size++;
 }
 
