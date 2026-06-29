@@ -67,9 +67,6 @@ void insert_client(Workspace *ws, Client *client, int idx) {
 
   for(int i = ws->clients.size; i > idx; --i) {
     swap_idx(ws, i, i - 1);
-    // Client *client = ws->clients.data[i];
-    // ws->clients.data[i] = ws->clients.data[i - 1];
-    // ws->clients.data[i - 1] = client;
   }
 
   ws->clients.data[idx] = client;
@@ -83,10 +80,6 @@ void remove_client(Workspace *ws, int idx) {
   int i = 0;
   for(int i = idx; i < ws->clients.size; i++) {
     swap_idx(ws, i, i + 1);
-    // Not using the swap_clients due to it only being allowed to swap non null indicies
-    // Client *client = ws->clients.data[i];
-    // ws->clients.data[i] = ws->clients.data[i + 1];
-    // ws->clients.data[i + 1] = client;
   }
 
   free(client);
@@ -96,5 +89,14 @@ void remove_client(Workspace *ws, int idx) {
   ws->clients.size--;
 
   return;
+}
+
+Client *init_client(Window win) {
+  Client *client = malloc(sizeof(Client));
+  client->x = 0;
+  client->y = 0;
+  client->width = 0;
+  client->height = 0;
+  return client;
 }
 
