@@ -1,5 +1,6 @@
 #include "../include/layout.h"
 #include "../include/wm.h"
+#include <X11/Xlib.h>
 
 // TODO add the implementations for tile
 
@@ -31,4 +32,22 @@ void calculate_geometry(Workspace *ws, Monitor *monitor) {
     }
   }
 }
+
+
+void tile(Display *dpy, Workspace *ws, Monitor *monitor) {
+  calculate_geometry(ws, monitor);
+
+  for(int i = 0; i < ws->clients.size; i++) {
+    Client *client = ws->clients.data[i];
+    XMoveResizeWindow(
+        dpy, 
+        client->window, 
+        client->x, 
+        client->y, 
+        client->width, 
+        client->height
+    );
+  }
+}
+
 
