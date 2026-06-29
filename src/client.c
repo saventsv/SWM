@@ -13,4 +13,16 @@ ClientArray init_client_arr() {
   return client_arr;
 }
 
+void append_client(Workspace *ws, Client *client) {
+  if(ws->clients.size == ws->clients.capacity) {
+    ws->clients.data = realloc(ws->clients.data, ws->clients.capacity * 2 * sizeof(Client*));
+    if(ws->clients.data == NULL) abort();
+    ws->clients.capacity*=2;
+    ws->clients.data[ws->clients.size] = client;
+    ws->clients.size++;
+  } else {
+    ws->clients.data[ws->clients.size] = client;
+    ws->clients.size++;
+  }
+}
 
