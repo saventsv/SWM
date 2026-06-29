@@ -23,13 +23,14 @@ typedef struct {
   Workspace workspaces[MAX_WORKSPACES];
   int current_workspace;
   int running;
+  Display *dpy;
 } WindowManager;
 
 typedef struct Monitor{
   int monitor_width, monitor_height;
   int usable_width, usable_height;
   Workspace *ws;
-  eventual multi-monitor support
-  struct Monitor *next
+  // eventual multi-monitor support
+  // struct Monitor *next
 } Monitor;
 
