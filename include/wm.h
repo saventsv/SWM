@@ -38,7 +38,7 @@ typedef struct {
   Workspace workspaces[MAX_WORKSPACES];
   int current_workspace;
   int running;
-  int focused_monitor;
+  // int focused_monitor;
   Monitor *monitors;
   int n_monitors;
   Display *dpy;
