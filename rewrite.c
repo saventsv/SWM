@@ -16,7 +16,7 @@ typedef struct {
 
 
 typedef struct {
-  Client *data;
+  Client **data;
   size_t capacity;
   size_t size;
 } ClientArray;
