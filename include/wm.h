@@ -20,7 +20,6 @@ typedef struct {
 typedef struct {
   ClientArray clients;
   int focused_idx;
-  int n_clients;
   int id;
 } Workspace;
 
