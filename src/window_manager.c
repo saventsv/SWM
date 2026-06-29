@@ -7,6 +7,7 @@ WindowManager init_wm() {
   WindowManager wm;
 
   wm.current_workspace = 0;
+  wm.focused_monitor = 0;
   wm.running = 1;
 
   if(!(wm.dpy = XOpenDisplay(0x0))) abort();
@@ -15,7 +16,6 @@ WindowManager init_wm() {
     Workspace workspace;
     workspace.focused_idx = -1;
     workspace.clients = init_client_arr();
-    workspace.n_clients = 0;
     workspace.id = i;
 
     wm.workspaces[i] = workspace;
