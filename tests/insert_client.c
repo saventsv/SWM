@@ -52,6 +52,24 @@ int main(void) {
   assert(ws.clients.data[3] == &c5);
   assert(ws.clients.data[4] == &c4);
 
+  for(int i = 0; i < ws.clients.size; i++) {
+    ws.clients.data[i] = NULL;
+  }
+  ws.clients.size = 0;
+
+  append_client(&ws, &c1);
+  append_client(&ws, &c2);
+  append_client(&ws, &c3);
+  append_client(&ws, &c4);
+
+  insert_client(&ws, &c5, 10);
+
+  assert(ws.clients.size == 4);
+
+  insert_client(&ws, &c5, -1);
+
+  assert(ws.clients.size == 4);
+
   return 0;
 }
 

@@ -37,6 +37,9 @@ void swap_clients(Workspace *ws, int idx1, int idx2) {
 }
 
 void insert_client(Workspace *ws, Client *client, int idx) {
+
+  if(idx < 0 || idx > ws->clients.size) return;
+
   if(ws->clients.size == ws->clients.capacity) {
     ws->clients.data = realloc(ws->clients.data, ws->clients.capacity * 2 * sizeof(Client*));
 
@@ -59,3 +62,4 @@ void insert_client(Workspace *ws, Client *client, int idx) {
 
   ws->clients.data[idx] = client;
 }
+
