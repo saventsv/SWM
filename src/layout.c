@@ -2,9 +2,6 @@
 #include "../include/wm.h"
 #include <X11/Xlib.h>
 
-// TODO add the implementations for tile
-
-
 void calculate_geometry(Workspace *ws, Monitor *monitor) {
   if(ws->clients.size == 0) return;
 

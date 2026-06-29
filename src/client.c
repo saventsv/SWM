@@ -100,3 +100,12 @@ Client *init_client(Window win) {
   return client;
 }
 
+
+Client *get_client_win(Workspace *ws, Window win) {
+
+  for(int i = 0; i < ws->clients.size; i++) {
+    if(ws->clients.data[i]->window == win) return ws->clients.data[i]; 
+  }
+
+  return NULL;
+}
