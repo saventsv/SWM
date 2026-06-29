@@ -36,6 +36,18 @@ void swap_clients(Workspace *ws, int idx1, int idx2) {
   ws->clients.data[idx2] = client;
 }
 
+void swap_idx(Workspace *ws, int idx1, int idx2) {
+  if(idx1 < 0 || idx1 > ws->clients.capacity - 1) return;
+  if(idx2 < 0 || idx2 > ws->clients.capacity - 1) return;
+  if(idx2 == idx1) return;
+
+  Client *client = ws->clients.data[idx1];
+
+  ws->clients.data[idx1] = ws->clients.data[idx2];
+  ws->clients.data[idx2] = client;
+}
+
+
 void insert_client(Workspace *ws, Client *client, int idx) {
 
   if(idx < 0 || idx > ws->clients.size) return;
