@@ -7,4 +7,5 @@ void append_client(Workspace *ws, Client *client);
 void insert_client(Workspace *ws, Client *client, int idx);
 void remove_client(Workspace *ws, int idx);
 ClientArray init_client_arr();
+Client *init_client(Window win);
 
