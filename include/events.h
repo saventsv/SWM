@@ -2,7 +2,7 @@
 
 #include "wm.h"
 
-void handle_maprequest(XEvent event);
-void handle_configurerequest(XEvent event);
-void handle_destorynotify(XEvent event);
+void handle_maprequest(WindowManager *wm, XEvent event); 
+void handle_configurerequest(WindowManager *wm, XEvent event);
+void handle_destorynotify(WindowManager *wm, XEvent event);
 
