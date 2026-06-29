@@ -25,4 +25,11 @@ typedef struct {
   int running;
 } WindowManager;
 
+typedef struct Monitor{
+  int monitor_width, monitor_height;
+  int usable_width, usable_height;
+  Workspace *ws;
+  eventual multi-monitor support
+  struct Monitor *next
+} Monitor;
 
