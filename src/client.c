@@ -101,18 +101,9 @@ Client *init_client(Window win) {
 }
 
 
-Client *get_client_win(Workspace *ws, Window win) {
-
+int get_client(Workspace *ws, Window win) {
   for(int i = 0; i < ws->clients.size; i++) {
-    if(ws->clients.data[i]->window == win) return ws->clients.data[i]; 
-  }
-
-  return NULL;
-}
-
-int get_client(Workspace *ws, Client *client) {
-  for(int i = 0; i < ws->clients.size; i++) {
-    if(ws->clients.data[i] == client) return i; 
+    if(ws->clients.data[i]->window == win) return i; 
   }
 
   return -1;
