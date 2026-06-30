@@ -23,16 +23,19 @@ int main(void) {
     switch(event.type) {
       case MapRequest:
         {
-          handle_maprequest(event);
+          handle_maprequest(&WM, event);
+          break;
         }
 
       case ConfigureRequest:
         {
-          handle_configurerequest(event);
+          handle_configurerequest(&WM, event);
+          break;
         }
       case DestroyNotify:
         {
-          handle_destorynotify(event);
+          handle_destorynotify(&WM, event);
+          break;
         }
       // case UnmapNotify:
       //   {
@@ -47,6 +50,10 @@ int main(void) {
       //
       //   }
       // case ClientMessage:
+      //   {
+      //
+      //   }
+      // case KeyPress:
       //   {
       //
       //   }
