@@ -7,7 +7,6 @@ WindowManager init_wm() {
   WindowManager wm;
 
   wm.current_workspace = 0;
-  wm.focused_monitor = 0;
   wm.running = 1;
 
   if(!(wm.dpy = XOpenDisplay(0x0))) abort();

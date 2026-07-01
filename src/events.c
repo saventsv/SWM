@@ -8,7 +8,6 @@ void handle_maprequest(WindowManager *wm, XEvent event) {
 
   Workspace *ws = &wm->workspaces[wm->current_workspace];
 
-
   Client *client = init_client(event.xmaprequest.window);
 
   XSelectInput(wm->dpy, client->window, EnterWindowMask);
@@ -26,7 +25,7 @@ void handle_destorynotify(WindowManager *wm, XEvent event) {
 
   int idx = get_client(ws, event.xdestroywindow.window);
 
-  if(ws->focused_idx == idx) ws->focused_idx--;
+  // if(ws->focused_idx == idx) ws->focused_idx--;
 
   remove_client(ws, idx);
 }

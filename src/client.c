@@ -50,6 +50,11 @@ void swap_idx(Workspace *ws, int idx1, int idx2) {
 
 void insert_client(Workspace *ws, Client *client, int idx) {
 
+  if(idx == ws->clients.size) {
+    append_client(ws, client);
+    return;
+  }
+
   if(idx < 0 || idx > ws->clients.size) return;
 
   if(ws->clients.size == ws->clients.capacity) {
@@ -59,11 +64,6 @@ void insert_client(Workspace *ws, Client *client, int idx) {
 
     ws->clients.capacity*=2;
   } 
-
-  if(idx == ws->clients.size) {
-    append_client(ws, client);
-    return;
-  }
 
   for(int i = ws->clients.size; i > idx; --i) {
     swap_idx(ws, i, i - 1);
@@ -92,7 +92,7 @@ void remove_client(Workspace *ws, int idx) {
 }
 
 Client *init_client(Window win) {
-  Client *client = malloc(sizeof(Client));
+  Client *client = malloc(sizeof(Client*));
   client->x = 0;
   client->y = 0;
   client->width = 0;

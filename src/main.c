@@ -8,9 +8,6 @@ int main(void) {
 
   XEvent event;
 
-
-
-
   XSelectInput(WM.dpy, 
       DefaultRootWindow(WM.dpy), 
       SubstructureNotifyMask | SubstructureRedirectMask
