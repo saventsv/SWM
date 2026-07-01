@@ -92,11 +92,12 @@ void remove_client(Workspace *ws, int idx) {
 }
 
 Client *init_client(Window win) {
-  Client *client = malloc(sizeof(Client*));
+  Client *client = malloc(sizeof(Client));
   client->x = 0;
   client->y = 0;
   client->width = 0;
   client->height = 0;
+  client->window = win;
   return client;
 }
 

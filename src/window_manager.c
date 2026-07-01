@@ -40,6 +40,9 @@ WindowManager init_wm() {
     monitor.monitor_y = monitors[i].y;
     monitor.monitor_width = monitors[i].width;
     monitor.monitor_height = monitors[i].height;
+    // Temporarilly add these until I get status bar detection
+    monitor.usable_width = monitors[i].width;
+    monitor.usable_height = monitors[i].height;
 
     wm.monitors[i] = monitor;
   }
