@@ -70,6 +70,7 @@ void insert_client(Workspace *ws, Client *client, int idx) {
   }
 
   ws->clients.data[idx] = client;
+  ws->clients.size++;
 }
 
 void remove_client(Workspace *ws, int idx) {

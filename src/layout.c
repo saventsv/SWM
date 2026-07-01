@@ -1,6 +1,6 @@
 #include "../include/layout.h"
 #include "../include/wm.h"
-#include <X11/Xlib.h>
+#include <stdio.h>
 
 void calculate_geometry(Workspace *ws, Monitor *monitor) {
   if(ws->clients.size == 0) return;
@@ -26,6 +26,12 @@ void calculate_geometry(Workspace *ws, Monitor *monitor) {
       client->height = stack_height;
       client->x = stack_x;
       client->y = stack_y;
+
+      printf("x=%d y=%d w=%d h=%d \n",
+           client->x,
+           client->y,
+           client->width,
+           client->height);
     }
   }
 }

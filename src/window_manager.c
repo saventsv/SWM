@@ -2,6 +2,7 @@
 #include "../include/wm.h"
 #include "../include/client.h"
 #include <stdlib.h>
+#include <stdio.h>
 
 WindowManager init_wm() {
   WindowManager wm;
@@ -35,6 +36,7 @@ WindowManager init_wm() {
   if(wm.monitors == NULL) abort();
 
   for(int i = 0; i < n_monitors; i++) {
+
     Monitor monitor;
     monitor.monitor_x = monitors[i].x;
     monitor.monitor_y = monitors[i].y;
