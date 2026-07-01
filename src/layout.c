@@ -9,7 +9,7 @@ void calculate_geometry(Workspace *ws, Monitor *monitor) {
   master_client->x = 0;
   master_client->y = 0;
   // TODO add master ratio
-  master_client->width = ws->clients.size == 1 ? monitor->usable_width : monitor->usable_width / 2;
+  master_client->width = ws->clients.size == 1 ?  monitor->usable_width / 2: monitor->usable_width;
   master_client->height = monitor->usable_height;
 
   if(ws->clients.size > 1) {
