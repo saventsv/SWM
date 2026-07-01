@@ -44,3 +44,15 @@ typedef struct {
   Display *dpy;
 } WindowManager;
 
+typedef union {
+  const int i;
+  const void *v;
+  const char *c;
+} Arg;
+
+typedef struct {
+  KeySym key;
+  unsigned int mod;
+  void (*func)(Arg *arg);
+} KeyBind;
+
