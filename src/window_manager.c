@@ -4,6 +4,45 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+MonitorArray init_monitor_arr() {
+  MonitorArray monitor_arr;
+
+  monitor_arr.capacity = 0;
+  monitor_arr.size = 0;
+  monitor_arr.data = malloc(monitor_arr.capacity * sizeof(Monitor*));
+
+  if(monitor_arr.data == NULL) abort();
+
+  return monitor_arr;
+}
+
+void append_monitor(WindowManager *wm, Monitor *monitor) {
+  if(wm->monitors.size == wm->monitors.capacity) {
+    wm->monitors.data = realloc(wm->monitors.data, wm->monitors.capacity * 2 * sizeof(Client*));
+
+    if(wm->monitors.data == NULL) abort();
+
+    wm->monitors.capacity*=2;
+  } 
+  wm->monitors.data[wm->monitors.size] = monitor;
+  wm->monitors.size++;
+}
+
+void remove_monitor(WindowManager *wm) {
+
+  Monitor *monitor = wm->monitors.data[wm->monitors.size];
+
+  free(monitor);
+
+  wm->monitors.data[wm->monitors.size] = NULL;
+
+  wm->monitors.size--;
+
+  return;
+}
+
+
+
 WindowManager init_wm() {
   WindowManager wm;
 
@@ -29,11 +68,8 @@ WindowManager init_wm() {
       True,
       &n_monitors);
 
-  wm.n_monitors = n_monitors;
 
-  wm.monitors = malloc(n_monitors * sizeof(Monitor));
-
-  if(wm.monitors == NULL) abort();
+  wm.monitors = init_monitor_arr();
 
   for(int i = 0; i < n_monitors; i++) {
 
@@ -46,7 +82,8 @@ WindowManager init_wm() {
     monitor.usable_width = monitors[i].width;
     monitor.usable_height = monitors[i].height;
 
-    wm.monitors[i] = monitor;
+    append_monitor(&wm, &monitor);
+    wm.monitors.data[i] = &monitor;
   }
 
   return wm;

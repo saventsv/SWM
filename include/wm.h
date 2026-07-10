@@ -35,14 +35,10 @@ typedef struct Monitor{
 } Monitor;
 
 typedef struct {
-  Workspace workspaces[MAX_WORKSPACES];
-  int current_workspace;
-  int running;
-  // int focused_monitor;
-  Monitor *monitors;
-  int n_monitors;
-  Display *dpy;
-} WindowManager;
+  Monitor **data;
+  size_t size;
+  size_t capacity;
+} MonitorArray;
 
 typedef union {
   const int i;
@@ -55,4 +51,15 @@ typedef struct {
   unsigned int mod;
   void (*func)(Arg *arg);
 } KeyBind;
+
+
+typedef struct {
+  Workspace workspaces[MAX_WORKSPACES];
+  int current_workspace;
+  int running;
+  int focused_monitor;
+  MonitorArray monitors;
+  Display *dpy;
+  KeyBind *keybinds[];
+} WindowManager;
 
