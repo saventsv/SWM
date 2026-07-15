@@ -2,6 +2,7 @@
 #include "../include/client.h"
 #include "../include/layout.h"
 #include "../include/wm.h"
+#include <X11/X.h>
 #include <X11/Xlib.h>
 
 void handle_maprequest(WindowManager *wm, XEvent event) {
