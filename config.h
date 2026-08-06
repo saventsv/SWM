@@ -1,4 +1,5 @@
 #include <X11/Xlib.h>
+#include "./include/wm.h"
 
 static const int border_width = 2;
 static const double master_ratio = 0.5;
